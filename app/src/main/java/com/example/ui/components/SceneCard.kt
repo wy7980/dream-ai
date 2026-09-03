@@ -207,9 +207,9 @@ fun SceneCard(
                         .background(Color(0xFF161E31)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (clip.videoUrl != null || clip.previewThumbnailUrl != null) {
-                        val modelPath = clip.videoUrl ?: clip.previewThumbnailUrl
-                        val imageModel = if (modelPath != null && modelPath.startsWith("/")) File(modelPath) else modelPath
+                    if (clip.status == GenerationStatus.COMPLETED && !clip.videoUrl.isNullOrBlank()) {
+                        val modelPath = clip.videoUrl!!
+                        val imageModel = if (modelPath.startsWith("/")) File(modelPath) else modelPath
                         AsyncImage(
                             model = imageModel,
                             contentDescription = clip.sceneTitle,
@@ -222,6 +222,21 @@ fun SceneCard(
                             tint = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.size(20.dp)
                         )
+                    } else if (clip.status == GenerationStatus.GENERATING_CLIPS) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = AgnesCyan
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "轮询生成中",
+                                fontSize = 8.sp,
+                                color = AgnesCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(

@@ -210,6 +210,14 @@ class AgnesRepository(
         for ((index, clip) in scenes.withIndex()) {
             onProgress("正在生成分镜 ${clip.sceneNumber}/${scenes.size}: ${clip.sceneTitle} (每分钟生成1段)...")
             
+            // Mark current clip as generating so carousel UI shows loading animation for this scene
+            val generatingClip = clip.copy(
+                status = GenerationStatus.GENERATING_CLIPS,
+                videoUrl = null,
+                previewThumbnailUrl = null
+            )
+            database.sceneClipDao().updateClip(generatingClip)
+
             val clipGenResult = agnesClient.generateSceneVideoClip(
                 config = _configFlow.value,
                 scene = clip,

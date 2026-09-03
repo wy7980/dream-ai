@@ -27,12 +27,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.GenerationProject
+import com.example.data.model.GenerationStatus
 import com.example.data.model.SceneClip
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
@@ -170,6 +173,8 @@ fun VideoTimelinePlayer(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Video Player Screen Viewport
+            val isClipCompleted = activeClip?.status == GenerationStatus.COMPLETED && !activeClip.videoUrl.isNullOrBlank()
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -177,10 +182,14 @@ fun VideoTimelinePlayer(
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color.Black)
                     .border(1.dp, CyberCardBorder, RoundedCornerShape(10.dp))
-                    .clickable { isPlaying = !isPlaying },
+                    .clickable {
+                        if (isClipCompleted) isPlaying = !isPlaying
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                if (activeClip?.videoUrl != null || activeClip?.previewThumbnailUrl != null) {
+                if (isClipCompleted) {
+                    val realVideoUrl = activeClip!!.videoUrl!!
+                    val videoModel = safeVideoModel(realVideoUrl)
                     val camLower = activeClip.cameraMovement.lowercase()
                     val motionScale = if (isPlaying) {
                         if (camLower.contains("zoom") || camLower.contains("推") || camLower.contains("close")) {
@@ -197,7 +206,7 @@ fun VideoTimelinePlayer(
                     } else 0f
 
                     AsyncImage(
-                        model = safeVideoModel(activeClip.videoUrl ?: activeClip.previewThumbnailUrl),
+                        model = videoModel,
                         contentDescription = activeClip.sceneTitle,
                         modifier = Modifier
                             .fillMaxSize()
@@ -208,119 +217,154 @@ fun VideoTimelinePlayer(
                             },
                         contentScale = ContentScale.Crop
                     )
-                } else {
+
+                    // Cinematic vignette overlay
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color(0xFF1E1B4B), Color(0xFF0F172A))
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.4f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.75f)
+                                    )
+                                )
+                            )
+                    )
+
+                    // Top Tag: Active Scene Info
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "分镜 0${(activeClip.sceneNumber)} • ${activeClip.sceneTitle}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AgnesCyan
+                        )
+                    }
+
+                    // Center Play/Pause button overlay if paused
+                    if (!isPlaying) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(AgnesViolet.copy(alpha = 0.85f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+
+                    // Bottom Narration Subtitles
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (!activeClip.narration.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = activeClip.narration,
+                                    fontSize = 11.sp,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Progress bar inside video
+                        LinearProgressIndicator(
+                            progress = { playbackProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.5.dp)
+                                .clip(RoundedCornerShape(1.dp)),
+                            color = AgnesCyan,
+                            trackColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    }
+                } else {
+                    // Loading & Polling State inside carousel box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF020617))
                                 )
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Videocam,
-                                contentDescription = null,
-                                tint = AgnesViolet,
-                                modifier = Modifier.size(36.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(44.dp),
+                                    strokeWidth = 3.dp,
+                                    color = AgnesCyan
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.HourglassTop,
+                                    contentDescription = null,
+                                    tint = AgnesViolet,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "分镜 0${activeClip?.sceneNumber ?: (currentClipIndex + 1)} • 真实 AI 视频生成轮询中...",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "正在缓冲分镜片段...",
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 11.sp
+                                text = when (activeClip?.status) {
+                                    GenerationStatus.GENERATING_CLIPS -> "云端正在渲染真实 MP4 视频，请稍等 (1~2 分钟)..."
+                                    GenerationStatus.WAITING_RATE_LIMIT -> "排队等待 60 秒 API 限速调度..."
+                                    GenerationStatus.SCRIPTING -> "正在规划分镜脚本..."
+                                    GenerationStatus.FAILED -> "视频生成失败，请稍后重试"
+                                    else -> "正在轮询任务状态，生成完成后将自动展示..."
+                                },
+                                color = AgnesCyan,
+                                fontSize = 10.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
-                    }
-                }
 
-                // Cinematic vignette overlay
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.4f),
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.75f)
-                                )
-                            )
-                        )
-                )
-
-                // Top Tag: Active Scene Info
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "分镜 0${(activeClip?.sceneNumber ?: (currentClipIndex + 1))} • ${activeClip?.sceneTitle ?: "场景"}",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AgnesCyan
-                    )
-                }
-
-                // Center Play/Pause button overlay if paused
-                if (!isPlaying) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(AgnesViolet.copy(alpha = 0.85f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                }
-
-                // Bottom Narration Subtitles
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    if (!activeClip?.narration.isNullOrBlank()) {
-                        Box(
+                        // Bottom loading progress bar
+                        LinearProgressIndicator(
                             modifier = Modifier
-                                .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = activeClip?.narration ?: "",
-                                fontSize = 11.sp,
-                                color = Color.White,
-                                textAlign = TextAlign.Center,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .align(Alignment.BottomCenter),
+                            color = AgnesCyan,
+                            trackColor = AgnesViolet.copy(alpha = 0.3f)
+                        )
                     }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Progress bar inside video
-                    LinearProgressIndicator(
-                        progress = { playbackProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.5.dp)
-                            .clip(RoundedCornerShape(1.dp)),
-                        color = AgnesCyan,
-                        trackColor = Color.White.copy(alpha = 0.2f)
-                    )
                 }
             }
 

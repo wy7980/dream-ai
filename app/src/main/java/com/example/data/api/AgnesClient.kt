@@ -459,19 +459,17 @@ class AgnesClient(
                                 val polledUrl = pollVideoTaskResult(endpoint, taskId, headerName, config.apiKey.trim())
                                 if (!polledUrl.isNullOrBlank()) {
                                     return@executeRateLimited Result.success(polledUrl)
+                                } else {
+                                    return@executeRateLimited Result.failure(Exception("视频生成超时或未获取到有效 URL"))
                                 }
                             }
                         }
                     }
                 }
 
-                // Render dynamic visual keyframe & video frame representation
-                delay(2000L)
-                val clipBitmapFile = createSceneVideoFrame(scene, stylePreset, sourceImageUri)
-                Result.success(clipBitmapFile.absolutePath)
+                Result.failure(Exception("视频生成接口未返回有效 URL 或 Task ID"))
             } catch (e: Exception) {
-                val clipBitmapFile = createSceneVideoFrame(scene, stylePreset, sourceImageUri)
-                Result.success(clipBitmapFile.absolutePath)
+                Result.failure(e)
             }
         }
     }
