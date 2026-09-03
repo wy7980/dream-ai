@@ -380,7 +380,8 @@ class AgnesClient(
         config: AgnesApiConfig,
         scene: SceneClip,
         projectId: String,
-        stylePreset: String
+        stylePreset: String,
+        sourceImageUri: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         rateLimitManager.executeRateLimited("Agnes 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}]") {
             try {
@@ -410,12 +411,12 @@ class AgnesClient(
                     }
                 }
 
-                // Render dynamic clip thumbnail & video frame representation
-                delay(3000L)
-                val clipBitmapFile = createSceneVideoFrame(scene, stylePreset)
+                // Render dynamic visual keyframe & video frame representation
+                delay(2000L)
+                val clipBitmapFile = createSceneVideoFrame(scene, stylePreset, sourceImageUri)
                 Result.success(clipBitmapFile.absolutePath)
             } catch (e: Exception) {
-                val clipBitmapFile = createSceneVideoFrame(scene, stylePreset)
+                val clipBitmapFile = createSceneVideoFrame(scene, stylePreset, sourceImageUri)
                 Result.success(clipBitmapFile.absolutePath)
             }
         }
@@ -663,50 +664,142 @@ class AgnesClient(
         return file
     }
 
-    private fun createSceneVideoFrame(scene: SceneClip, stylePreset: String): File {
+    private fun createSceneVideoFrame(scene: SceneClip, stylePreset: String, sourceImageUri: String? = null): File {
         val width = 1280
         val height = 720
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        // Dynamic gradient for video scene
-        val sceneHue = (scene.sceneNumber * 75) % 360
-        val hsv = floatArrayOf(sceneHue.toFloat(), 0.75f, 0.4f)
-        val baseColor = Color.HSVToColor(hsv)
-        val secondaryColor = Color.HSVToColor(floatArrayOf((sceneHue + 40f) % 360, 0.85f, 0.2f))
+        val sourceBitmap = loadSourceBitmap(sourceImageUri)
 
-        val gradient = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), intArrayOf(baseColor, secondaryColor, Color.parseColor("#090D16")), null, Shader.TileMode.CLAMP)
-        paint.shader = gradient
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        if (sourceBitmap != null) {
+            // Draw Source Image with scene-specific cinematic crop and perspective framing
+            val srcW = sourceBitmap.width.toFloat()
+            val srcH = sourceBitmap.height.toFloat()
+            val targetRatio = width.toFloat() / height.toFloat()
 
-        // Aperture / cinematic HUD ring
+            // Scene-specific framing (Scene 1: Wide, Scene 2: Left Focus, Scene 3: Center Close, Scene 4: Wide Sunset)
+            val zoomFactor = when (scene.sceneNumber) {
+                1 -> 1.0f  // Establishing wide
+                2 -> 1.25f // Medium tracking
+                3 -> 1.45f // Close-up energy
+                else -> 1.1f // Epic conclusion
+            }
+
+            val cropW = (srcW / zoomFactor).toInt()
+            val cropH = (cropW / targetRatio).toInt().coerceAtMost(sourceBitmap.height)
+            val offsetX = when (scene.sceneNumber) {
+                2 -> (sourceBitmap.width - cropW) / 4 // shifted left
+                else -> (sourceBitmap.width - cropW) / 2
+            }.coerceAtLeast(0)
+            val offsetY = ((sourceBitmap.height - cropH) / 2).coerceAtLeast(0)
+
+            val srcRect = Rect(offsetX, offsetY, (offsetX + cropW).coerceAtMost(sourceBitmap.width), (offsetY + cropH).coerceAtMost(sourceBitmap.height))
+            val dstRect = Rect(0, 0, width, height)
+
+            // Scene-specific lighting/color filter
+            val colorFilter = when (scene.sceneNumber) {
+                1 -> ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                    1.1f, 0f, 0f, 0f, 10f,
+                    0f, 1.15f, 0f, 0f, 15f,
+                    0f, 0f, 1.3f, 0f, 30f,
+                    0f, 0f, 0f, 1f, 0f
+                ))) // Dawn/Cold Cinematic Teal
+                2 -> ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                    1.2f, 0f, 0f, 0f, 20f,
+                    0f, 1.1f, 0f, 0f, 5f,
+                    0.2f, 0f, 1.4f, 0f, 25f,
+                    0f, 0f, 0f, 1f, 0f
+                ))) // High dynamic range focus
+                3 -> ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                    1.35f, 0.1f, 0f, 0f, 30f,
+                    0.1f, 1.2f, 0.1f, 0f, 20f,
+                    0f, 0.2f, 1.4f, 0f, 40f,
+                    0f, 0f, 0f, 1f, 0f
+                ))) // Climax energy surge
+                else -> ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                    1.25f, 0.15f, 0f, 0f, 25f,
+                    0.05f, 1.05f, 0f, 0f, 10f,
+                    0f, 0.05f, 0.9f, 0f, -10f,
+                    0f, 0f, 0f, 1f, 0f
+                ))) // Golden Hour Sunset Epilogue
+            }
+
+            paint.colorFilter = colorFilter
+            canvas.drawBitmap(sourceBitmap, srcRect, dstRect, paint)
+            paint.colorFilter = null
+
+            // Scene atmospheric rim lighting overlay
+            val glowColor = when (scene.sceneNumber) {
+                1 -> Color.argb(90, 56, 189, 248)  // Cyan
+                2 -> Color.argb(90, 168, 85, 247)  // Violet
+                3 -> Color.argb(120, 244, 63, 94)  // Crimson Energy
+                else -> Color.argb(100, 245, 158, 11) // Golden
+            }
+            paint.shader = RadialGradient(
+                width * 0.5f, height * 0.5f, width * 0.65f,
+                intArrayOf(Color.TRANSPARENT, glowColor, Color.argb(160, 5, 8, 18)),
+                floatArrayOf(0.4f, 0.85f, 1f), Shader.TileMode.CLAMP
+            )
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+        } else {
+            // Dynamic landscape gradient when no source bitmap
+            val sceneHue = (scene.sceneNumber * 80 + 200) % 360
+            val hsv1 = floatArrayOf(sceneHue.toFloat(), 0.7f, 0.25f)
+            val hsv2 = floatArrayOf((sceneHue + 45f) % 360, 0.85f, 0.12f)
+            val baseColor = Color.HSVToColor(hsv1)
+            val secondaryColor = Color.HSVToColor(hsv2)
+
+            val gradient = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), intArrayOf(baseColor, secondaryColor, Color.parseColor("#050811")), null, Shader.TileMode.CLAMP)
+            paint.shader = gradient
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+
+            // Cinematic landscape layers
+            paint.shader = null
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(45, 255, 255, 255)
+            val horizon = height * 0.6f
+            val path = android.graphics.Path().apply {
+                moveTo(0f, horizon)
+                quadTo(width * 0.3f, horizon - 80f, width * 0.6f, horizon - 20f)
+                quadTo(width * 0.85f, horizon - 110f, width.toFloat(), horizon - 40f)
+                lineTo(width.toFloat(), height.toFloat())
+                lineTo(0f, height.toFloat())
+                close()
+            }
+            canvas.drawPath(path, paint)
+        }
+
+        // Cinematic 2.39:1 Letterbox / Masking Bars
         paint.shader = null
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 4f
-        paint.color = Color.parseColor("#38BDF8")
-        canvas.drawCircle(width / 2f, height / 2f, 180f, paint)
-
-        paint.strokeWidth = 2f
-        paint.color = Color.argb(120, 255, 255, 255)
-        canvas.drawCircle(width / 2f, height / 2f, 220f, paint)
-
-        // Cinematic badge
         paint.style = Paint.Style.FILL
+        paint.color = Color.argb(210, 0, 0, 0)
+        canvas.drawRect(0f, 0f, width.toFloat(), 48f, paint)
+        canvas.drawRect(0f, height - 76f, width.toFloat(), height.toFloat(), paint)
+
+        // Top Info Bar: Scene Badge & Camera Direction
         paint.color = Color.WHITE
-        paint.textSize = 42f
+        paint.textSize = 24f
         paint.isFakeBoldText = true
-        canvas.drawText("SCENE 0${scene.sceneNumber} • ${scene.sceneTitle.uppercase()}", 60f, 80f, paint)
+        canvas.drawText("🎬 第 0${scene.sceneNumber} 幕 • ${scene.sceneTitle}", 36f, 34f, paint)
 
         paint.color = Color.parseColor("#38BDF8")
-        paint.textSize = 28f
+        paint.textSize = 20f
         paint.isFakeBoldText = false
-        canvas.drawText("CAMERA: ${scene.cameraMovement.uppercase()} | DURATION: ${scene.durationSeconds}s", 60f, 130f, paint)
+        val cameraText = "镜头: ${scene.cameraMovement} | 时长: ${scene.durationSeconds}s"
+        val camWidth = paint.measureText(cameraText)
+        canvas.drawText(cameraText, width - camWidth - 36f, 34f, paint)
 
-        paint.color = Color.argb(220, 255, 255, 255)
+        // Bottom Subtitle Narration Bar
+        paint.color = Color.parseColor("#FDE047") // Gold Subtitle
         paint.textSize = 26f
-        val narrationText = "“${scene.narration}”"
-        canvas.drawText(narrationText, 60f, height - 60f, paint)
+        paint.isFakeBoldText = true
+        val narrationClean = scene.narration.ifBlank { "“${scene.visualPrompt.take(45)}...”" }
+        val narrationDisplay = if (narrationClean.length > 55) narrationClean.take(55) + "..." else narrationClean
+        val subWidth = paint.measureText(narrationDisplay)
+        val subX = ((width - subWidth) / 2f).coerceAtLeast(36f)
+        canvas.drawText(narrationDisplay, subX, height - 32f, paint)
 
         val file = File(context.filesDir, "scene_frame_${scene.projectId}_${scene.sceneNumber}.jpg")
         FileOutputStream(file).use { out ->

@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import java.io.File
 import com.example.data.model.GenerationStatus
 import com.example.data.model.SceneClip
 import com.example.ui.theme.AgnesAmber
@@ -207,8 +208,10 @@ fun SceneCard(
                     contentAlignment = Alignment.Center
                 ) {
                     if (clip.videoUrl != null || clip.previewThumbnailUrl != null) {
+                        val modelPath = clip.videoUrl ?: clip.previewThumbnailUrl
+                        val imageModel = if (modelPath != null && modelPath.startsWith("/")) File(modelPath) else modelPath
                         AsyncImage(
-                            model = clip.videoUrl ?: clip.previewThumbnailUrl,
+                            model = imageModel,
                             contentDescription = clip.sceneTitle,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop

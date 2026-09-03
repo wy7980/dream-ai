@@ -69,7 +69,14 @@ import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
 import com.example.ui.theme.CyberCardBg
 import com.example.ui.theme.CyberCardBorder
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.delay
+import java.io.File
+
+private fun safeVideoModel(uri: String?): Any? {
+    if (uri.isNullOrBlank()) return null
+    return if (uri.startsWith("/")) File(uri) else uri
+}
 
 @Composable
 fun VideoTimelinePlayer(
@@ -174,10 +181,31 @@ fun VideoTimelinePlayer(
                 contentAlignment = Alignment.Center
             ) {
                 if (activeClip?.videoUrl != null || activeClip?.previewThumbnailUrl != null) {
+                    val camLower = activeClip.cameraMovement.lowercase()
+                    val motionScale = if (isPlaying) {
+                        if (camLower.contains("zoom") || camLower.contains("推") || camLower.contains("close")) {
+                            1.0f + (playbackProgress * 0.18f)
+                        } else if (camLower.contains("crane") || camLower.contains("远") || camLower.contains("俯瞰")) {
+                            1.18f - (playbackProgress * 0.14f)
+                        } else {
+                            1.05f + (playbackProgress * 0.06f)
+                        }
+                    } else 1.05f
+
+                    val motionPanX = if (isPlaying && (camLower.contains("track") || camLower.contains("pan") || camLower.contains("跟"))) {
+                        (playbackProgress - 0.5f) * 45f
+                    } else 0f
+
                     AsyncImage(
-                        model = activeClip.videoUrl ?: activeClip.previewThumbnailUrl,
+                        model = safeVideoModel(activeClip.videoUrl ?: activeClip.previewThumbnailUrl),
                         contentDescription = activeClip.sceneTitle,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = motionScale
+                                scaleY = motionScale
+                                translationX = motionPanX
+                            },
                         contentScale = ContentScale.Crop
                     )
                 } else {

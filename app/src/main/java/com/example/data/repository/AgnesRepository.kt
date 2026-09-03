@@ -198,7 +198,8 @@ class AgnesRepository(
                 config = _configFlow.value,
                 scene = clip,
                 projectId = projectId,
-                stylePreset = stylePreset
+                stylePreset = stylePreset,
+                sourceImageUri = sourceImageUri
             )
 
             if (clipGenResult.isSuccess) {
