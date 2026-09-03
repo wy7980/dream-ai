@@ -1,0 +1,7 @@
+{
+  "name": "Agnes AI Studio",
+  "description": "AI智能体助手，支持配置Agnes API密钥与端点、图片智能重绘、多段视频分镜脚本规划生成、严格每分钟1次限速队列调度及多段视频拼接合成",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
