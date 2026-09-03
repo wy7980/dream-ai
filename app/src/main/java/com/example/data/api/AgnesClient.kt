@@ -1,6 +1,7 @@
 package com.example.data.api
 
 import android.content.Context
+import android.util.Log
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -449,6 +450,24 @@ class AgnesClient(
                             if (videoUrl.isNotBlank()) {
                                 return@executeRateLimited Result.success(videoUrl)
                             }
+
+                            // If video_url is not in immediate response, extract task ID and query task status asynchronously
+                            var taskId = json.optString("task_id")
+                            if (taskId.isBlank()) taskId = json.optString("id")
+                            if (taskId.isBlank()) taskId = json.optString("taskId")
+                            if (taskId.isBlank()) {
+                                val dataObj = json.optJSONObject("data")
+                                if (dataObj != null) {
+                                    taskId = dataObj.optString("task_id").ifBlank { dataObj.optString("id") }
+                                }
+                            }
+
+                            if (taskId.isNotBlank()) {
+                                val polledUrl = pollVideoTaskResult(endpoint, taskId, headerName, config.apiKey.trim())
+                                if (!polledUrl.isNullOrBlank()) {
+                                    return@executeRateLimited Result.success(polledUrl)
+                                }
+                            }
                         }
                     }
                 }
@@ -462,6 +481,87 @@ class AgnesClient(
                 Result.success(clipBitmapFile.absolutePath)
             }
         }
+    }
+
+    /**
+     * Poll asynchronous video generation task until completion
+     */
+    private suspend fun pollVideoTaskResult(
+        baseEndpoint: String,
+        taskId: String,
+        headerName: String,
+        apiKey: String
+    ): String? = withContext(Dispatchers.IO) {
+        val cleanBase = baseEndpoint.removeSuffix("/")
+        val parentEndpoint = cleanBase.removeSuffix("/videos")
+        
+        val endpointsToTry = listOf(
+            "$cleanBase/$taskId",
+            "$cleanBase/tasks/$taskId",
+            "$parentEndpoint/tasks/$taskId",
+            "$parentEndpoint/videos/$taskId"
+        ).distinct()
+
+        val maxAttempts = 35 // ~105s total polling duration
+        for (attempt in 1..maxAttempts) {
+            delay(3000L) // Wait 3s between poll checks
+            for (queryUrl in endpointsToTry) {
+                try {
+                    val request = Request.Builder()
+                        .url(queryUrl)
+                        .header("Authorization", "$headerName $apiKey")
+                        .get()
+                        .build()
+
+                    val response = okHttpClient.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: ""
+                        if (body.startsWith("{")) {
+                            val json = JSONObject(body)
+                            
+                            var videoUrl = json.optString("video_url")
+                            if (videoUrl.isBlank()) videoUrl = json.optString("url")
+                            
+                            if (videoUrl.isBlank()) {
+                                val outputObj = json.optJSONObject("output")
+                                if (outputObj != null) {
+                                    videoUrl = outputObj.optString("video_url").ifBlank { outputObj.optString("url") }
+                                }
+                            }
+                            if (videoUrl.isBlank()) {
+                                val resultObj = json.optJSONObject("result")
+                                if (resultObj != null) {
+                                    videoUrl = resultObj.optString("video_url").ifBlank { resultObj.optString("url") }
+                                }
+                            }
+                            if (videoUrl.isBlank()) {
+                                val dataArr = json.optJSONArray("data")
+                                if (dataArr != null && dataArr.length() > 0) {
+                                    val item = dataArr.optJSONObject(0)
+                                    videoUrl = item?.optString("url") ?: item?.optString("video_url") ?: ""
+                                }
+                            }
+
+                            if (videoUrl.isNotBlank()) {
+                                return@withContext videoUrl
+                            }
+
+                            val status = json.optString("status")
+                                .ifBlank { json.optString("task_status") }
+                                .lowercase()
+
+                            if (status == "failed" || status == "error") {
+                                Log.e("AgnesClient", "Video generation task $taskId failed: $body")
+                                return@withContext null
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore transient network errors during polling
+                }
+            }
+        }
+        return@withContext null
     }
 
     /**
