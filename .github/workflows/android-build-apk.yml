@@ -1,0 +1,75 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build & Export Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Environment Files & Keystore
+        run: |
+          # Ensure .env exists for Secrets Gradle Plugin
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
+
+          # Decode debug keystore if base64 file exists
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+      - name: Build Debug APK
+        run: |
+          gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Locate Generated APK
+        id: apk-path
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            echo "Found APK at: $APK_FILE"
+            echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: APK file not found!"
+            exit 1
+          fi
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Agnes-AI-Agent-Debug-APK
+          path: ${{ steps.apk-path.outputs.apk_path }}
+          retention-days: 14
