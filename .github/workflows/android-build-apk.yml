@@ -42,8 +42,24 @@ jobs:
 
           # Decode debug keystore if base64 file exists
           if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || true
           fi
+
+          # If debug.keystore does not exist or is empty, generate debug keystore for CI
+          if [ ! -s debug.keystore ]; then
+            echo "Generating debug.keystore for CI build..."
+            keytool -genkey -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          ls -lh debug.keystore
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4

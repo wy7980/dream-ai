@@ -27,7 +27,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         application,
         AppDatabase::class.java,
         "agnes_studio_db"
-    ).fallbackToDestructiveMigration().build()
+    ).fallbackToDestructiveMigration(dropAllTables = true).build()
 
     private val rateLimitManager = RateLimitManager(cooldownIntervalSeconds = 60)
     private val agnesClient = AgnesClient(application, rateLimitManager)
