@@ -405,12 +405,19 @@ class AgnesClient(
                     val endpoint = if (base.endsWith("/v1")) "$base/videos" else "$base/v1/videos"
                     val sceneDuration = if (scene.durationSeconds > 0) scene.durationSeconds else 10
 
+                    val modelName = config.videoModelName.trim().ifBlank { "agnes-video-v2.0" }
+                    val modeValue = when {
+                        modelName.contains("v2.0", ignoreCase = true) || modelName.contains("v20", ignoreCase = true) -> "ti2vid"
+                        modelName.contains("2.5", ignoreCase = true) -> "text"
+                        else -> "text"
+                    }
+
                     val requestJson = JSONObject().apply {
-                        put("model", config.videoModelName)
+                        put("model", modelName)
                         put("prompt", "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset")
                         put("seconds", "10")
                         put("duration", sceneDuration)
-                        put("mode", "text")
+                        put("mode", modeValue)
                         put("size", "720P")
                         put("aspect_ratio", "16:9")
                         put("height", 768)
@@ -432,21 +439,7 @@ class AgnesClient(
                         val body = response.body?.string() ?: ""
                         if (body.startsWith("{")) {
                             val json = JSONObject(body)
-                            var videoUrl = json.optString("video_url")
-                            if (videoUrl.isBlank()) videoUrl = json.optString("url")
-                            if (videoUrl.isBlank()) {
-                                val dataArr = json.optJSONArray("data")
-                                if (dataArr != null && dataArr.length() > 0) {
-                                    val item = dataArr.optJSONObject(0)
-                                    videoUrl = item?.optString("url") ?: item?.optString("video_url") ?: ""
-                                }
-                            }
-                            if (videoUrl.isBlank()) {
-                                val outputObj = json.optJSONObject("output")
-                                if (outputObj != null) {
-                                    videoUrl = outputObj.optString("video_url").ifBlank { outputObj.optString("url") }
-                                }
-                            }
+                            var videoUrl = extractVideoUrlFromJson(json)
                             if (videoUrl.isNotBlank()) {
                                 return@executeRateLimited Result.success(videoUrl)
                             }
@@ -484,6 +477,43 @@ class AgnesClient(
     }
 
     /**
+     * Helper to extract video URL from various Agnes/OpenAI-compatible JSON responses
+     */
+    private fun extractVideoUrlFromJson(json: JSONObject): String {
+        var videoUrl = json.optString("video_url")
+        if (videoUrl.isBlank()) videoUrl = json.optString("url")
+
+        if (videoUrl.isBlank()) {
+            val metaObj = json.optJSONObject("metadata")
+            if (metaObj != null) {
+                videoUrl = metaObj.optString("url").ifBlank { metaObj.optString("video_url") }
+            }
+        }
+        if (videoUrl.isBlank()) {
+            val outputObj = json.optJSONObject("output")
+            if (outputObj != null) {
+                videoUrl = outputObj.optString("video_url").ifBlank { outputObj.optString("url") }
+            }
+        }
+        if (videoUrl.isBlank()) {
+            val resultObj = json.optJSONObject("result")
+            if (resultObj != null) {
+                videoUrl = resultObj.optString("video_url").ifBlank { resultObj.optString("url") }
+            }
+        }
+        if (videoUrl.isBlank()) {
+            val dataArr = json.optJSONArray("data")
+            if (dataArr != null && dataArr.length() > 0) {
+                val item = dataArr.optJSONObject(0)
+                if (item != null) {
+                    videoUrl = item.optString("url").ifBlank { item.optString("video_url") }
+                }
+            }
+        }
+        return videoUrl
+    }
+
+    /**
      * Poll asynchronous video generation task until completion
      */
     private suspend fun pollVideoTaskResult(
@@ -493,74 +523,44 @@ class AgnesClient(
         apiKey: String
     ): String? = withContext(Dispatchers.IO) {
         val cleanBase = baseEndpoint.removeSuffix("/")
-        val parentEndpoint = cleanBase.removeSuffix("/videos")
-        
-        val endpointsToTry = listOf(
-            "$cleanBase/$taskId",
-            "$cleanBase/tasks/$taskId",
-            "$parentEndpoint/tasks/$taskId",
-            "$parentEndpoint/videos/$taskId"
-        ).distinct()
+        val queryUrl = "$cleanBase/$taskId"
 
-        val maxAttempts = 35 // ~105s total polling duration
+        val maxAttempts = 60 // ~240s total polling duration
         for (attempt in 1..maxAttempts) {
-            delay(3000L) // Wait 3s between poll checks
-            for (queryUrl in endpointsToTry) {
-                try {
-                    val request = Request.Builder()
-                        .url(queryUrl)
-                        .header("Authorization", "$headerName $apiKey")
-                        .get()
-                        .build()
+            delay(4000L) // Wait 4s between poll checks
+            try {
+                val request = Request.Builder()
+                    .url(queryUrl)
+                    .header("Authorization", "$headerName $apiKey")
+                    .get()
+                    .build()
 
-                    val response = okHttpClient.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: ""
-                        if (body.startsWith("{")) {
-                            val json = JSONObject(body)
-                            
-                            var videoUrl = json.optString("video_url")
-                            if (videoUrl.isBlank()) videoUrl = json.optString("url")
-                            
-                            if (videoUrl.isBlank()) {
-                                val outputObj = json.optJSONObject("output")
-                                if (outputObj != null) {
-                                    videoUrl = outputObj.optString("video_url").ifBlank { outputObj.optString("url") }
-                                }
-                            }
-                            if (videoUrl.isBlank()) {
-                                val resultObj = json.optJSONObject("result")
-                                if (resultObj != null) {
-                                    videoUrl = resultObj.optString("video_url").ifBlank { resultObj.optString("url") }
-                                }
-                            }
-                            if (videoUrl.isBlank()) {
-                                val dataArr = json.optJSONArray("data")
-                                if (dataArr != null && dataArr.length() > 0) {
-                                    val item = dataArr.optJSONObject(0)
-                                    videoUrl = item?.optString("url") ?: item?.optString("video_url") ?: ""
-                                }
-                            }
+                val response = okHttpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
+                    if (body.startsWith("{")) {
+                        val json = JSONObject(body)
+                        val videoUrl = extractVideoUrlFromJson(json)
+                        if (videoUrl.isNotBlank()) {
+                            Log.i("AgnesClient", "Video task $taskId succeeded! Video URL: $videoUrl")
+                            return@withContext videoUrl
+                        }
 
-                            if (videoUrl.isNotBlank()) {
-                                return@withContext videoUrl
-                            }
+                        val status = json.optString("status")
+                            .ifBlank { json.optString("task_status") }
+                            .lowercase()
 
-                            val status = json.optString("status")
-                                .ifBlank { json.optString("task_status") }
-                                .lowercase()
-
-                            if (status == "failed" || status == "error") {
-                                Log.e("AgnesClient", "Video generation task $taskId failed: $body")
-                                return@withContext null
-                            }
+                        if (status == "failed" || status == "error") {
+                            Log.e("AgnesClient", "Video generation task $taskId failed: $body")
+                            return@withContext null
                         }
                     }
-                } catch (e: Exception) {
-                    // Ignore transient network errors during polling
                 }
+            } catch (e: Exception) {
+                Log.w("AgnesClient", "Poll attempt $attempt error: ${e.message}")
             }
         }
+        Log.e("AgnesClient", "Video generation task $taskId timed out after $maxAttempts attempts")
         return@withContext null
     }
 

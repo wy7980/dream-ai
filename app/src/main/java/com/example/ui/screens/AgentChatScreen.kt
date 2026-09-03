@@ -160,7 +160,7 @@ fun AgentChatScreen(
                     )
                 }
 
-                // Center: App Title & Active Model Info
+                // Center: App Title (Icon + Dream AI)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -178,20 +178,13 @@ fun AgentChatScreen(
                             modifier = Modifier.size(16.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column {
-                        Text(
-                            text = "Dream AI",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "对话: ${currentConfig.chatModelName} • 生图: ${currentConfig.modelName} • 视频: ${currentConfig.videoModelName}",
-                            fontSize = 8.5.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Dream AI",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
 
                 // Top Right: New Chat / Clear Session Icon Only
