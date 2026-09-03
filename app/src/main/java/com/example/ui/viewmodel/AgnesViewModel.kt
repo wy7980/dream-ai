@@ -306,4 +306,58 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             _toastMessage.value = "聊天记录已清空"
         }
     }
+
+    fun saveImageToGallery(imageUriOrPath: String?, title: String? = null, onComplete: (Boolean, String) -> Unit = { _, _ -> }) {
+        if (imageUriOrPath.isNullOrBlank()) {
+            _toastMessage.value = "图像路径为空，无法保存"
+            onComplete(false, "图像路径为空")
+            return
+        }
+
+        viewModelScope.launch {
+            _toastMessage.value = "正在保存高清图像到系统相册..."
+            val result = com.example.util.MediaExportHelper.saveImageToGallery(
+                context = getApplication(),
+                imageUriOrPath = imageUriOrPath,
+                title = title
+            )
+            if (result.isSuccess) {
+                val uri = result.getOrThrow()
+                _toastMessage.value = "🎨 图像已成功保存至系统相册！(Pictures/AgnesAI)"
+                onComplete(true, "保存成功: $uri")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "未知错误"
+                _toastMessage.value = "保存失败: $err"
+                onComplete(false, err)
+            }
+        }
+    }
+
+    fun exportVideoProject(project: GenerationProject, clips: List<SceneClip>, onComplete: (Boolean, String) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            _toastMessage.value = "正在导出并保存视频分镜至系统媒体库..."
+            val result = com.example.util.MediaExportHelper.saveVideoProjectToGallery(
+                context = getApplication(),
+                project = project,
+                clips = clips
+            )
+            if (result.isSuccess) {
+                val uri = result.getOrThrow()
+                _toastMessage.value = "🎬 完整分镜长视频/图谱已成功保存至系统媒体库！"
+                onComplete(true, "导出成功: $uri")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "未知错误"
+                _toastMessage.value = "导出失败: $err"
+                onComplete(false, err)
+            }
+        }
+    }
+
+    fun shareMedia(uriOrPath: String?, isVideo: Boolean = false) {
+        com.example.util.MediaExportHelper.shareMedia(
+            context = getApplication(),
+            uriOrPath = uriOrPath,
+            isVideo = isVideo
+        )
+    }
 }

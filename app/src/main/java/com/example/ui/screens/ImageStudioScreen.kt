@@ -491,6 +491,65 @@ fun ImageStudioScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                viewModel.saveImageToGallery(lastImageProject.resultImageUri, lastImageProject.prompt)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .testTag("save_image_button"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = null,
+                                tint = AgnesEmerald,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "保存到相册",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AgnesEmerald
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.shareMedia(lastImageProject.resultImageUri, isVideo = false)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp)
+                                .testTag("share_image_button"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                tint = AgnesCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "系统分享",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AgnesCyan
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     // Next step: Convert to video storyboard
                     Button(
                         onClick = {

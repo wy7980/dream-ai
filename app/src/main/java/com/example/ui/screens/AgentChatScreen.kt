@@ -30,9 +30,11 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
@@ -237,6 +239,14 @@ fun AgentChatScreen(
                             viewModel.selectProject(relatedProject)
                         }
                         onNavigateToImage()
+                    },
+                    onSaveImage = {
+                        val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
+                        viewModel.saveImageToGallery(imgUri, relatedProject?.prompt ?: message.content)
+                    },
+                    onShareImage = {
+                        val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
+                        viewModel.shareMedia(imgUri, isVideo = false)
                     }
                 )
             }
@@ -445,7 +455,9 @@ fun ChatMessageItem(
     message: ChatMessage,
     project: com.example.data.model.GenerationProject? = null,
     onOpenVideoStudio: () -> Unit,
-    onOpenImageStudio: () -> Unit
+    onOpenImageStudio: () -> Unit,
+    onSaveImage: () -> Unit = {},
+    onShareImage: () -> Unit = {}
 ) {
     val isUser = message.sender == "user"
 
@@ -538,6 +550,43 @@ fun ChatMessageItem(
                                 fontWeight = FontWeight.Bold,
                                 color = AgnesCyan
                             )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = onSaveImage,
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF161E31)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, tint = AgnesEmerald, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("保存", fontSize = 10.sp, color = AgnesEmerald)
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            onClick = onShareImage,
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF161E31)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, tint = AgnesCyan, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("分享", fontSize = 10.sp, color = AgnesCyan)
+                            }
                         }
                     }
                 }

@@ -386,7 +386,11 @@ fun GalleryScreen(
                     onOpenProjectInStudio(p)
                 },
                 onExport = {
-                    viewModel.showToast("🎬 完整多段拼接长视频已成功保存至本地媒体库！")
+                    viewModel.exportVideoProject(project, selectedClips)
+                },
+                onShare = {
+                    val shareTarget = project.resultVideoUri ?: selectedClips.firstOrNull()?.videoUrl ?: selectedClips.firstOrNull()?.previewThumbnailUrl
+                    viewModel.shareMedia(shareTarget, isVideo = true)
                 },
                 onDelete = {
                     viewModel.deleteProject(project)
@@ -410,7 +414,10 @@ fun GalleryScreen(
                     onOpenProjectInStudio(p)
                 },
                 onSave = {
-                    viewModel.showToast("🎨 高清图像已成功保存至相册！")
+                    viewModel.saveImageToGallery(project.resultImageUri ?: project.sourceImageUri, project.prompt)
+                },
+                onShare = {
+                    viewModel.shareMedia(project.resultImageUri ?: project.sourceImageUri, isVideo = false)
                 },
                 onDelete = {
                     viewModel.deleteProject(project)
@@ -786,6 +793,7 @@ fun DirectImageViewerDialog(
     onConvertToVideo: () -> Unit,
     onOpenInStudio: () -> Unit,
     onSave: () -> Unit,
+    onShare: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     var showComparison by remember { mutableStateOf(false) }
@@ -1086,8 +1094,21 @@ fun DirectImageViewerDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
                     ) {
                         Icon(imageVector = Icons.Default.Download, contentDescription = null, tint = AgnesEmerald, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("保存到相册", fontSize = 11.sp, color = AgnesEmerald)
+                    }
+
+                    Button(
+                        onClick = onShare,
+                        modifier = Modifier
+                            .weight(0.8f)
+                            .height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = null, tint = AgnesCyan, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("系统分享", fontSize = 11.sp, color = AgnesCyan)
                     }
 
                     Button(
@@ -1120,6 +1141,7 @@ fun DirectVideoViewerDialog(
     onDismiss: () -> Unit,
     onOpenInStudio: () -> Unit,
     onExport: () -> Unit,
+    onShare: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
@@ -1321,17 +1343,35 @@ fun DirectVideoViewerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Button(
-                    onClick = onDelete,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A1215))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFF87171), modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("删除此视频项目", fontSize = 11.sp, color = Color(0xFFF87171))
+                    Button(
+                        onClick = onShare,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = null, tint = AgnesCyan, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("系统分享", fontSize = 11.sp, color = AgnesCyan)
+                    }
+
+                    Button(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A1215))
+                    ) {
+                        Icon(imageVector = Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFF87171), modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("删除视频", fontSize = 11.sp, color = Color(0xFFF87171))
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

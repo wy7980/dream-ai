@@ -43,12 +43,28 @@ class AgnesRepository(
     }
 
     private fun loadConfig(): AgnesApiConfig {
+        val rawEndpoint = prefs.getString("endpoint_url", "https://api.agnes-ai.cn/v1") ?: "https://api.agnes-ai.cn/v1"
+        val endpoint = if (rawEndpoint.contains("api.agnes.ai") || rawEndpoint.isBlank()) {
+            "https://api.agnes-ai.cn/v1"
+        } else {
+            rawEndpoint
+        }
+
+        val rawChat = prefs.getString("chat_model_name", "gpt-4o") ?: "gpt-4o"
+        val chatModel = if (rawChat == "agnes-chat-pro") "gpt-4o" else rawChat
+
+        val rawImage = prefs.getString("model_name", "flux-1-dev") ?: "flux-1-dev"
+        val imageModel = if (rawImage == "agnes-vision-ultra") "flux-1-dev" else rawImage
+
+        val rawVideo = prefs.getString("video_model_name", "kling-v1") ?: "kling-v1"
+        val videoModel = if (rawVideo == "agnes-video-gen-v2") "kling-v1" else rawVideo
+
         return AgnesApiConfig(
             apiKey = prefs.getString("api_key", "") ?: "",
-            endpointUrl = prefs.getString("endpoint_url", "https://api.agnes.ai/v1") ?: "https://api.agnes.ai/v1",
-            chatModelName = prefs.getString("chat_model_name", "agnes-chat-pro") ?: "agnes-chat-pro",
-            modelName = prefs.getString("model_name", "agnes-vision-ultra") ?: "agnes-vision-ultra",
-            videoModelName = prefs.getString("video_model_name", "agnes-video-gen-v2") ?: "agnes-video-gen-v2",
+            endpointUrl = endpoint,
+            chatModelName = chatModel,
+            modelName = imageModel,
+            videoModelName = videoModel,
             rateLimitSeconds = prefs.getInt("rate_limit_seconds", 60),
             autoStitchVideos = prefs.getBoolean("auto_stitch", true),
             customAuthHeader = prefs.getString("auth_header", "Bearer") ?: "Bearer"

@@ -392,7 +392,7 @@ fun VideoPipelineScreen(
                     project = activeVideoProject,
                     clips = selectedClips,
                     onExportVideo = {
-                        viewModel.showToast("完整拼接视频已保存至媒体库 (${activeVideoProject.durationSeconds}秒)")
+                        viewModel.exportVideoProject(activeVideoProject, selectedClips)
                     }
                 )
             }

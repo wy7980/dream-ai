@@ -48,8 +48,6 @@ class AgnesClient(
     // Default recommended models categorized
     val defaultPresetModels = listOf(
         // Chat Models
-        "agnes-chat-pro",
-        "agnes-agent-v3",
         "gpt-4o",
         "gpt-4o-mini",
         "claude-3-5-sonnet",
@@ -59,18 +57,15 @@ class AgnesClient(
         "gemini-1.5-pro",
         "gemini-1.5-flash",
         // Image Models
-        "agnes-vision-ultra",
-        "agnes-sdxl-remix",
-        "flux-1-schnell",
         "flux-1-dev",
+        "flux-1-schnell",
         "dall-e-3",
         "midjourney-v6",
         "stable-diffusion-3.5",
         // Video Models
-        "agnes-video-gen-v2",
-        "kling-video-v1",
+        "kling-v1",
         "luma-ray",
-        "sora-preview",
+        "sora",
         "runway-gen3",
         "cogvideox"
     )
@@ -79,7 +74,11 @@ class AgnesClient(
      * Fetch available model list from API Base URL (/models endpoint)
      */
     suspend fun fetchAvailableModels(config: AgnesApiConfig): Result<List<String>> = withContext(Dispatchers.IO) {
-        val endpoint = "${config.endpointUrl.removeSuffix("/")}/models"
+        var base = config.endpointUrl.trim().removeSuffix("/")
+        if (base.isBlank()) {
+            base = "https://api.agnes-ai.cn/v1"
+        }
+        val endpoint = if (base.endsWith("/v1")) "$base/models" else "$base/v1/models"
         val models = mutableListOf<String>()
 
         try {
@@ -88,7 +87,8 @@ class AgnesClient(
                 .header("Content-Type", "application/json")
 
             if (config.apiKey.isNotBlank()) {
-                reqBuilder.header("Authorization", "${config.customAuthHeader} ${config.apiKey}")
+                val headerName = config.customAuthHeader.trim().ifBlank { "Bearer" }
+                reqBuilder.header("Authorization", "$headerName ${config.apiKey.trim()}")
             }
 
             val response = okHttpClient.newCall(reqBuilder.build()).execute()
@@ -97,6 +97,9 @@ class AgnesClient(
                 if (body.startsWith("{")) {
                     val json = JSONObject(body)
                     val dataArr = json.optJSONArray("data")
+                        ?: json.optJSONArray("models")
+                        ?: json.optJSONArray("list")
+
                     if (dataArr != null) {
                         for (i in 0 until dataArr.length()) {
                             val item = dataArr.optJSONObject(i)
@@ -112,23 +115,29 @@ class AgnesClient(
                 } else if (body.startsWith("[")) {
                     val arr = JSONArray(body)
                     for (i in 0 until arr.length()) {
-                        val str = arr.optString(i)
-                        if (str.isNotBlank()) models.add(str)
+                        val item = arr.optJSONObject(i)
+                        if (item != null) {
+                            val id = item.optString("id").ifBlank { item.optString("name") }
+                            if (id.isNotBlank()) models.add(id)
+                        } else {
+                            val str = arr.optString(i)
+                            if (str.isNotBlank()) models.add(str)
+                        }
                     }
                 }
+
+                if (models.isNotEmpty()) {
+                    return@withContext Result.success(models.distinct())
+                } else {
+                    return@withContext Result.failure(Exception("接口响应正常但未解析到模型列表: $body"))
+                }
+            } else {
+                val errBody = response.body?.string()?.take(150) ?: ""
+                return@withContext Result.failure(Exception("拉取模型失败 (HTTP ${response.code}): ${response.message} $errBody"))
             }
-        } catch (_: Exception) {
-            // Fallback handled below
+        } catch (e: Exception) {
+            return@withContext Result.failure(Exception("连接端点失败 ($endpoint): ${e.localizedMessage ?: e.message}"))
         }
-
-        if (models.isEmpty()) {
-            // Return comprehensive curated model list as rich fallback
-            return@withContext Result.success(defaultPresetModels)
-        }
-
-        // Merge with preset list to ensure user always has full selection
-        val combined = (models + defaultPresetModels).distinct()
-        Result.success(combined)
     }
 
     /**
