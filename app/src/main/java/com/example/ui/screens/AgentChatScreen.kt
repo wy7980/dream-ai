@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,16 +23,21 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Share
@@ -99,6 +105,7 @@ fun AgentChatScreen(
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<String?>(null) }
     var showImagePicker by remember { mutableStateOf(false) }
+    var showHistoryDrawer by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -117,71 +124,92 @@ fun AgentChatScreen(
         "💡 推荐几个适合制作科幻短片的镜头提示词与运镜方式"
     )
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0A0D14))
             .testTag("agent_chat_screen")
     ) {
-        // Top Rate Limit Banner (Only active for image/video generation)
-        RateLimitBanner(
-            rateLimitState = rateLimitState,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-        )
-
-        // Header & Active Models Summary
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(
-                            Brush.linearGradient(listOf(AgnesViolet, AgnesCyan)),
-                            CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
+            // Top Rate Limit Banner (Only active for image/video generation)
+            RateLimitBanner(
+                rateLimitState = rateLimitState,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            )
+
+            // Header (Qwen / DeepSeek Style Header: Left Icon -> History, Center -> Dream AI Title, Right Icon -> New Chat)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Top Left: Menu Icon Only to Open History Drawer
+                IconButton(
+                    onClick = { showHistoryDrawer = true },
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.SmartToy,
-                        contentDescription = null,
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "历史对话列表",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = "Agnes AI 全能创作智能体",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "对话: ${currentConfig.chatModelName} • 生图: ${currentConfig.modelName} • 生视频: ${currentConfig.videoModelName}",
-                        fontSize = 9.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                }
-            }
 
-            IconButton(
-                onClick = { viewModel.clearChat() },
-                modifier = Modifier.size(28.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = "Clear Chat",
-                    tint = Color(0xFF94A3B8),
-                    modifier = Modifier.size(16.dp)
-                )
+                // Center: App Title & Active Model Info
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(
+                                Brush.linearGradient(listOf(AgnesViolet, AgnesCyan)),
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SmartToy,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column {
+                        Text(
+                            text = "Dream AI",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "对话: ${currentConfig.chatModelName} • 生图: ${currentConfig.modelName} • 视频: ${currentConfig.videoModelName}",
+                            fontSize = 8.5.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                }
+
+                // Top Right: New Chat / Clear Session Icon Only
+                IconButton(
+                    onClick = {
+                        viewModel.clearChat()
+                        viewModel.showToast("已开启新对话")
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "新建对话",
+                        tint = AgnesCyan,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
-        }
 
         // Mode Switcher Chips (Auto, Chat, Image, Video)
         Row(
@@ -435,6 +463,218 @@ fun AgentChatScreen(
             }
         }
     }
+
+    // Left History Navigation Drawer Overlay (Qwen / DeepSeek Style)
+    AnimatedVisibility(
+        visible = showHistoryDrawer,
+        enter = androidx.compose.animation.fadeIn() + slideInHorizontally(initialOffsetX = { -it }),
+        exit = androidx.compose.animation.fadeOut() + slideOutHorizontally(targetOffsetX = { -it })
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+                .clickable { showHistoryDrawer = false }
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(280.dp)
+                    .fillMaxHeight()
+                    .background(Color(0xFF0F172A))
+                    .clickable(enabled = false) {}
+                    .padding(16.dp)
+            ) {
+                // Drawer Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(
+                                    Brush.linearGradient(listOf(AgnesViolet, AgnesCyan)),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SmartToy,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Dream AI 历史对话",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    IconButton(onClick = { showHistoryDrawer = false }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "关闭",
+                            tint = Color(0xFF94A3B8)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // New Chat Action Button
+                Surface(
+                    onClick = {
+                        viewModel.clearChat()
+                        showHistoryDrawer = false
+                        viewModel.showToast("已开启新对话")
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = AgnesVioletDark,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AgnesViolet),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = AgnesCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "新建对话",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "历史创作项目与对话",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF94A3B8)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Project History List
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (projects.isEmpty() && chatMessages.size <= 1) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "暂无历史对话记录",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    }
+
+                    items(projects) { project ->
+                        Surface(
+                            onClick = {
+                                viewModel.selectProject(project)
+                                showHistoryDrawer = false
+                                if (project.type == com.example.data.model.ProjectType.VIDEO_SCRIPT_AND_STITCH) {
+                                    onNavigateToVideo()
+                                } else {
+                                    onNavigateToImage()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            color = CyberCardBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (project.type == com.example.data.model.ProjectType.VIDEO_SCRIPT_AND_STITCH) Icons.Default.Movie else Icons.Default.Image,
+                                    contentDescription = null,
+                                    tint = if (project.type == com.example.data.model.ProjectType.VIDEO_SCRIPT_AND_STITCH) AgnesCyan else AgnesVioletLight,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = project.title,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = project.statusMessage,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF94A3B8),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Clear All Chat History
+                Surface(
+                    onClick = {
+                        viewModel.clearChat()
+                        showHistoryDrawer = false
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF1E293B),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "清空对话历史",
+                            fontSize = 12.sp,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
     if (showImagePicker) {
         ImagePickerBottomSheet(

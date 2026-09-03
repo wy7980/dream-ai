@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Agnes AI Studio"
+rootProject.name = "Dream AI"
 
 include(":app")

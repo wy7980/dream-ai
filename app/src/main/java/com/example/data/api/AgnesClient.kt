@@ -63,6 +63,8 @@ class AgnesClient(
         "midjourney-v6",
         "stable-diffusion-3.5",
         // Video Models
+        "agnes-video-2.5-flash",
+        "agnes-video-v2.0",
         "kling-v1",
         "luma-ray",
         "sora",
@@ -153,7 +155,7 @@ class AgnesClient(
             if (config.apiKey.isNotBlank()) {
                 val endpoint = "${config.endpointUrl.removeSuffix("/")}/chat/completions"
                 val systemPrompt = """
-                    You are Agnes AI Studio Agent (艾格尼斯智能助手), an expert in AI multimodal creation (text conversation, image generation/remix, and multi-scene cinematic video generation).
+                    You are Dream AI Agent (Dream AI 智能助手), an expert in AI multimodal creation (text conversation, image generation/remix, and multi-scene cinematic video generation).
                     Respond helpfully, politely, creatively, and concisely in Chinese (or matching the user's language).
                     Give insightful answers, suggest prompt optimizations, storytelling ideas, and artistic direction.
                 """.trimIndent()
@@ -210,9 +212,9 @@ class AgnesClient(
         val lower = prompt.lowercase()
         return when {
             lower.contains("你好") || lower.contains("hi") || lower.contains("hello") ->
-                "你好！我是 Agnes AI 多模态智能助手（当前使用对话模型：$modelName）。我可以陪你自由畅聊、协助构思电影脚本、生成高精美图，或者为你拆解生成多段拼接视频！"
+                "你好！我是 Dream AI 多模态智能助手（当前使用对话模型：$modelName）。我可以陪你自由畅聊、协助构思电影脚本、生成高精美图，或者为你拆解生成多段拼接视频！"
             lower.contains("怎么用") || lower.contains("功能") || lower.contains("帮助") ->
-                "💡 **Agnes AI 智能体使用指南**：\n\n1. **💬 自由对话**：日常问答、创作建议、灵感交流，走高速对话通道。\n2. **🎨 智能生图/重绘**：输入画面构想或附加图片，自动调度生图模型生成变奏作品（1分钟限速保护）。\n3. **🎬 故事生视频**：描述故事主线，AI 将自动规划分镜并依次生成片段后无缝拼接。\n4. **⚙️ 设置中心**：支持自动拉取模型列表，灵活切换对话模型、生图模型与视频模型！"
+                "💡 **Dream AI 智能体使用指南**：\n\n1. **💬 自由对话**：日常问答、创作建议、灵感交流，走高速对话通道。\n2. **🎨 智能生图/重绘**：输入画面构想或附加图片，自动调度生图模型生成变奏作品（1分钟限速保护）。\n3. **🎬 故事生视频**：描述故事主线，AI 将自动规划分镜并依次生成片段后无缝拼接。\n4. **⚙️ 设置中心**：支持自动拉取模型列表，灵活切换对话模型、生图模型与视频模型！"
             lower.contains("提示词") || lower.contains("prompt") ->
                 "✨ **画面/镜头提示词建议**：\n- **主体与环境**：Cyberpunk city street at rainy night, neon reflections\n- **质感与光影**：8K resolution, ray tracing, cinematic volumetric light, octane render\n- **运镜建议**：Slow Dolly Zoom In, Drone 360 Orbit, Low Angle Tracking Shot"
             else ->
@@ -221,11 +223,11 @@ class AgnesClient(
     }
 
     /**
-     * Test connection to Agnes API
+     * Test connection to Dream AI API
      */
     suspend fun testConnection(config: AgnesApiConfig): Result<String> = withContext(Dispatchers.IO) {
         if (config.apiKey.isBlank()) {
-            return@withContext Result.failure(Exception("请先填写 Agnes API 密钥"))
+            return@withContext Result.failure(Exception("请先填写 Dream AI API 密钥"))
         }
 
         try {
@@ -241,13 +243,13 @@ class AgnesClient(
             val response = okHttpClient.newCall(request).execute()
             val latency = System.currentTimeMillis() - startTime
             if (response.isSuccessful || response.code in listOf(200, 404, 400)) {
-                Result.success("Agnes API 连接成功！响应延迟: ${latency}ms")
+                Result.success("Dream AI API 连接成功！响应延迟: ${latency}ms")
             } else if (response.code == 429) {
-                Result.failure(Exception("Agnes API 提示限速 (429 Too Many Requests)，请等待冷却后重试"))
+                Result.failure(Exception("API 提示限速 (429 Too Many Requests)，请等待冷却后重试"))
             } else if (response.code == 401 || response.code == 403) {
-                Result.failure(Exception("Agnes API 鉴权失败 (状态码: ${response.code})，请检查 API Key"))
+                Result.failure(Exception("API 鉴权失败 (状态码: ${response.code})，请检查 API Key"))
             } else {
-                Result.success("Agnes API 端点已响应 (HTTP ${response.code})，网络畅通")
+                Result.success("API 端点已响应 (HTTP ${response.code})，网络畅通")
             }
         } catch (e: Exception) {
             // If offline or custom endpoint, return descriptive error but don't crash
@@ -326,14 +328,14 @@ class AgnesClient(
                 if (config.apiKey.isNotBlank()) {
                     val endpoint = "${config.endpointUrl.removeSuffix("/")}/chat/completions"
                     val systemPrompt = """
-                        You are Agnes AI Film Director. Create a $sceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
+                        You are Dream AI Film Director. Create a $sceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
                         Return strict JSON format with an array named "scenes" with objects having:
                         - sceneNumber (int)
                         - sceneTitle (string)
                         - visualPrompt (detailed image/video generation prompt in English)
                         - cameraMovement (e.g. "Slow Zoom In", "Drone Flyover", "Panning Left to Right", "360 Orbit")
                         - narration (cinematic narration or dialogue)
-                        - durationSeconds (integer 3-6)
+                        - durationSeconds (fixed integer 10)
                     """.trimIndent()
 
                     val messages = JSONArray().apply {
@@ -342,7 +344,7 @@ class AgnesClient(
                     }
 
                     val requestJson = JSONObject().apply {
-                        put("model", "gpt-4o-mini")
+                        put("model", config.chatModelName)
                         put("messages", messages)
                         put("temperature", 0.7)
                     }
@@ -392,19 +394,34 @@ class AgnesClient(
         stylePreset: String,
         sourceImageUri: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        rateLimitManager.executeRateLimited("Agnes 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}]") {
+        rateLimitManager.executeRateLimited("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}]") {
             try {
                 if (config.apiKey.isNotBlank()) {
-                    val endpoint = "${config.endpointUrl.removeSuffix("/")}/videos/generations"
+                    var base = config.endpointUrl.trim().removeSuffix("/")
+                    if (base.isBlank()) {
+                        base = "https://api.agnes-ai.cn/v1"
+                    }
+                    val endpoint = if (base.endsWith("/v1")) "$base/videos" else "$base/v1/videos"
+                    val sceneDuration = if (scene.durationSeconds > 0) scene.durationSeconds else 10
+
                     val requestJson = JSONObject().apply {
-                        put("prompt", "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset")
                         put("model", config.videoModelName)
-                        put("duration", scene.durationSeconds)
+                        put("prompt", "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset")
+                        put("seconds", "10")
+                        put("duration", sceneDuration)
+                        put("mode", "text")
+                        put("size", "720P")
+                        put("aspect_ratio", "16:9")
+                        put("height", 768)
+                        put("width", 1152)
+                        put("num_frames", 241)
+                        put("frame_rate", 24)
                     }
 
+                    val headerName = config.customAuthHeader.trim().ifBlank { "Bearer" }
                     val request = Request.Builder()
                         .url(endpoint)
-                        .header("Authorization", "${config.customAuthHeader} ${config.apiKey}")
+                        .header("Authorization", "$headerName ${config.apiKey.trim()}")
                         .header("Content-Type", "application/json")
                         .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                         .build()
@@ -412,10 +429,26 @@ class AgnesClient(
                     val response = okHttpClient.newCall(request).execute()
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
-                        val json = JSONObject(body)
-                        val videoUrl = json.optString("video_url")
-                        if (videoUrl.isNotBlank()) {
-                            return@executeRateLimited Result.success(videoUrl)
+                        if (body.startsWith("{")) {
+                            val json = JSONObject(body)
+                            var videoUrl = json.optString("video_url")
+                            if (videoUrl.isBlank()) videoUrl = json.optString("url")
+                            if (videoUrl.isBlank()) {
+                                val dataArr = json.optJSONArray("data")
+                                if (dataArr != null && dataArr.length() > 0) {
+                                    val item = dataArr.optJSONObject(0)
+                                    videoUrl = item?.optString("url") ?: item?.optString("video_url") ?: ""
+                                }
+                            }
+                            if (videoUrl.isBlank()) {
+                                val outputObj = json.optJSONObject("output")
+                                if (outputObj != null) {
+                                    videoUrl = outputObj.optString("video_url").ifBlank { outputObj.optString("url") }
+                                }
+                            }
+                            if (videoUrl.isNotBlank()) {
+                                return@executeRateLimited Result.success(videoUrl)
+                            }
                         }
                     }
                 }
@@ -833,7 +866,7 @@ class AgnesClient(
                         visualPrompt = item.optString("visualPrompt", ""),
                         cameraMovement = item.optString("cameraMovement", "Smooth Cinematic Pan"),
                         narration = item.optString("narration", ""),
-                        durationSeconds = item.optInt("durationSeconds", 4)
+                        durationSeconds = item.optInt("durationSeconds", 10)
                     )
                 )
             }
@@ -865,7 +898,7 @@ class AgnesClient(
                 visualPrompt = "${template.second}, style: $style, theme: $theme, ultra photorealistic, 8k render, unreal engine 5 cinematics",
                 cameraMovement = camera,
                 narration = "第${i + 1}幕：${template.third}，故事在「$theme」中徐徐展开。",
-                durationSeconds = 4
+                durationSeconds = 10
             )
         }
     }

@@ -117,7 +117,7 @@ class AgnesRepository(
             stylePreset = stylePreset,
             aspectRatio = aspectRatio,
             status = GenerationStatus.WAITING_RATE_LIMIT,
-            statusMessage = "排队等待 Agnes API 调度中..."
+            statusMessage = "排队等待 Dream AI API 调度中..."
         )
         database.projectDao().insertProject(project)
 
@@ -172,12 +172,12 @@ class AgnesRepository(
             completedClips = 0,
             stylePreset = stylePreset,
             status = GenerationStatus.SCRIPTING,
-            statusMessage = "Agnes AI 正在规划 $sceneCount 段电影分镜脚本..."
+            statusMessage = "Dream AI 正在规划 $sceneCount 段电影分镜脚本..."
         )
         database.projectDao().insertProject(project)
 
         // Step 1: Generate Script
-        onProgress("正在通过 Agnes API 构思分镜脚本...")
+        onProgress("正在通过 Dream AI 构思分镜脚本...")
         val scriptResult = agnesClient.generateVideoScript(
             config = _configFlow.value,
             themePrompt = themePrompt,

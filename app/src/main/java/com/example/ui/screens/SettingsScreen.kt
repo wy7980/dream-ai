@@ -141,7 +141,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
-                    text = "Agnes API 与多模型分流配置",
+                    text = "Dream AI API 与多模型分流配置",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -196,7 +196,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("endpoint_input"),
-                    placeholder = { Text("https://api.agnes.ai/v1", color = Color(0xFF64748B), fontSize = 12.sp) },
+                    placeholder = { Text("https://api.agnes-ai.cn/v1", color = Color(0xFF64748B), fontSize = 12.sp) },
                     shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AgnesViolet,

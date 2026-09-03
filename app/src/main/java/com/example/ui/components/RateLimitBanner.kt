@@ -141,7 +141,7 @@ fun RateLimitBanner(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = if (isCooling) "限速冷却中 (${remaining}s)" else "Agnes 调度就绪",
+                                text = if (isCooling) "限速冷却中 (${remaining}s)" else "Dream AI 调度就绪",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isCooling) AgnesAmber else AgnesEmerald

@@ -72,7 +72,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             repository.chatMessages.collect { list ->
                 if (list.isEmpty()) {
                     repository.saveAgentReply(
-                        replyText = "你好！我是你的 Agnes AI 全能创作智能体 🎬✨\n\n你可以和我：\n💬 **自由畅聊**：探讨创意构想、润色提示词（对话模型拥有更高吞吐速率，无需排队）\n🎨 **智能生图 / 重绘**：描述画面或发送参考图，自动调用生图模型（1分钟限速保护）\n🎬 **分镜生视频**：一句话生成多幕电影短片并自动拼接成片（1分钟限速保护）\n\n可在输入框上方切换专属模式，或在「设置」中自动拉取模型列表！"
+                        replyText = "你好！我是你的 Dream AI 全能创作智能体 🎬✨\n\n你可以和我：\n💬 **自由畅聊**：探讨创意构想、润色提示词（对话模型拥有更高吞吐速率，无需排队）\n🎨 **智能生图 / 重绘**：描述画面或发送参考图，自动调用生图模型（1分钟限速保护）\n🎬 **分镜生视频**：一句话生成多幕电影短片并自动拼接成片（1分钟限速保护）\n\n可在输入框上方切换专属模式，或在「设置」中自动拉取模型列表！"
                     )
                 }
             }

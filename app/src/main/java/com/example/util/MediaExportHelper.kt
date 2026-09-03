@@ -221,7 +221,7 @@ object MediaExportHelper {
                 type = mimeType
                 putExtra(Intent.EXTRA_STREAM, contentUri)
                 putExtra(Intent.EXTRA_SUBJECT, shareTitle)
-                putExtra(Intent.EXTRA_TEXT, "由 Agnes AI 全能创作智能体生成 ✨")
+                putExtra(Intent.EXTRA_TEXT, "由 Dream AI 全能创作智能体生成 ✨")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
@@ -297,7 +297,7 @@ object MediaExportHelper {
         paint.color = Color.parseColor("#38BDF8")
         paint.textSize = 34f
         paint.isFakeBoldText = true
-        canvas.drawText("AGNES AI 🎬 电影分镜全景成片图谱", 40f, 60f, paint)
+        canvas.drawText("DREAM AI 🎬 电影分镜全景成片图谱", 40f, 60f, paint)
 
         paint.color = Color.WHITE
         paint.textSize = 22f

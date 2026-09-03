@@ -49,7 +49,7 @@ data class SceneClip(
     val visualPrompt: String,
     val cameraMovement: String, // e.g. "Slow Dolly In", "Drone Orbit", "Pan Left to Right"
     val narration: String,
-    val durationSeconds: Int = 4,
+    val durationSeconds: Int = 10,
     val videoUrl: String? = null,
     val previewThumbnailUrl: String? = null,
     val status: GenerationStatus = GenerationStatus.IDLE,
