@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,10 +27,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,8 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
+import com.example.data.model.ChatIntentMode
 import com.example.ui.components.ImagePickerBottomSheet
 import com.example.ui.components.RateLimitBanner
+import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
@@ -74,7 +77,6 @@ import com.example.ui.theme.AgnesVioletLight
 import com.example.ui.theme.CyberCardBg
 import com.example.ui.theme.CyberCardBorder
 import com.example.ui.viewmodel.AgnesViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,13 +91,14 @@ fun AgentChatScreen(
     val rateLimitState by viewModel.rateLimitState.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val progressMessage by viewModel.progressMessage.collectAsState()
+    val currentConfig by viewModel.config.collectAsState()
+    val currentIntentMode by viewModel.chatIntentMode.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<String?>(null) }
     var showImagePicker by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Auto-scroll on new message
@@ -106,10 +109,10 @@ fun AgentChatScreen(
     }
 
     val quickPrompts = listOf(
-        "🎬 根据此图片生成4幕电影短片并拼接",
-        "🎨 将图片重绘为赛博朋克霓虹风格",
-        "🚀 构思星际科幻分镜并生成完整视频",
-        "✨ 动漫二次元艺术变奏重绘"
+        "💬 帮我构思一个赛博朋克雨夜侦探的微电影故事剧本",
+        "🎨 根据此图片重绘为电影级霓虹光影概念艺术图",
+        "🎬 将此概念生成4幕连续电影视频并自动拼接成片",
+        "💡 推荐几个适合制作科幻短片的镜头提示词与运镜方式"
     )
 
     Column(
@@ -118,24 +121,24 @@ fun AgentChatScreen(
             .background(Color(0xFF0A0D14))
             .testTag("agent_chat_screen")
     ) {
-        // Top Rate Limit Guard
+        // Top Rate Limit Banner (Only active for image/video generation)
         RateLimitBanner(
             rateLimitState = rateLimitState,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
         )
 
-        // Chat Header with Clear action
+        // Header & Active Models Summary
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 2.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(32.dp)
                         .background(
                             Brush.linearGradient(listOf(AgnesViolet, AgnesCyan)),
                             CircleShape
@@ -146,20 +149,20 @@ fun AgentChatScreen(
                         imageVector = Icons.Default.SmartToy,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "Agnes 智能体助手",
+                        text = "Agnes AI 全能创作智能体",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
-                        text = "多模态图像重绘 • 分镜规划 • 视频拼接",
-                        fontSize = 10.sp,
+                        text = "对话: ${currentConfig.chatModelName} • 生图: ${currentConfig.modelName} • 生视频: ${currentConfig.videoModelName}",
+                        fontSize = 9.sp,
                         color = Color(0xFF94A3B8)
                     )
                 }
@@ -178,13 +181,49 @@ fun AgentChatScreen(
             }
         }
 
+        // Mode Switcher Chips (Auto, Chat, Image, Video)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val modes = listOf(
+                Triple(ChatIntentMode.AUTO, "🌟 智能识别", Color(0xFF8B5CF6)),
+                Triple(ChatIntentMode.CHAT, "💬 快速对话", AgnesEmerald),
+                Triple(ChatIntentMode.IMAGE_GEN, "🎨 智能生图", AgnesVioletLight),
+                Triple(ChatIntentMode.VIDEO_GEN, "🎬 分镜生视频", AgnesCyan)
+            )
+
+            modes.forEach { (mode, label, color) ->
+                val isSelected = currentIntentMode == mode
+                Surface(
+                    onClick = { viewModel.setChatIntentMode(mode) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSelected) color.copy(alpha = 0.25f) else Color(0xFF161E31),
+                    border = androidx.compose.foundation.BorderStroke(
+                        if (isSelected) 1.5.dp else 1.dp,
+                        if (isSelected) color else CyberCardBorder
+                    )
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 10.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) color else Color(0xFF94A3B8),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
         // Chat Messages List
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(chatMessages, key = { it.id }) { message ->
@@ -205,7 +244,11 @@ fun AgentChatScreen(
             if (isGenerating) {
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF161E31), RoundedCornerShape(8.dp))
+                            .border(1.dp, AgnesCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CircularProgressIndicator(
@@ -215,7 +258,7 @@ fun AgentChatScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (progressMessage.isNotBlank()) progressMessage else "Agnes 智能体正在调度执行...",
+                            text = if (progressMessage.isNotBlank()) progressMessage else "Agnes 正在调用专属模型并执行调度...",
                             fontSize = 11.sp,
                             color = AgnesCyan,
                             fontWeight = FontWeight.Medium
@@ -229,7 +272,7 @@ fun AgentChatScreen(
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             items(quickPrompts) { prompt ->
@@ -243,7 +286,7 @@ fun AgentChatScreen(
                 ) {
                     Text(
                         text = prompt,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         color = Color(0xFFCBD5E1),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                     )
@@ -282,7 +325,7 @@ fun AgentChatScreen(
                         color = AgnesCyan
                     )
                     Text(
-                        text = "可用于图片重绘变奏或生成多段分镜短片",
+                        text = "将作为图像重绘基底或分镜视频故事线索",
                         fontSize = 9.sp,
                         color = Color(0xFF94A3B8)
                     )
@@ -326,6 +369,13 @@ fun AgentChatScreen(
 
             Spacer(modifier = Modifier.width(6.dp))
 
+            val placeholderHint = when (currentIntentMode) {
+                ChatIntentMode.CHAT -> "输入问题与对话模型探讨交流（高速不排队）..."
+                ChatIntentMode.IMAGE_GEN -> "输入画图描述或附加图片进行变奏重绘..."
+                ChatIntentMode.VIDEO_GEN -> "输入视频主题，自动规划4段分镜并拼接..."
+                ChatIntentMode.AUTO -> "自由提问、输入生图指令或构思视频短片..."
+            }
+
             OutlinedTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
@@ -333,7 +383,7 @@ fun AgentChatScreen(
                     .weight(1f)
                     .testTag("chat_input_field"),
                 placeholder = {
-                    Text("向 Agnes 提问、输入构思或生成指令...", fontSize = 12.sp, color = Color(0xFF64748B))
+                    Text(placeholderHint, fontSize = 11.sp, color = Color(0xFF64748B))
                 },
                 maxLines = 3,
                 shape = RoundedCornerShape(20.dp),
@@ -492,6 +542,45 @@ fun ChatMessageItem(
                     }
                 }
 
+                // If this message is linked to a completed video generation project, render video entry!
+                if (project?.resultVideoUri != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        onClick = onOpenVideoStudio,
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Black,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AgnesCyan)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = null,
+                                tint = AgnesCyan,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "🎬 多段拼接电影已就绪 (${project.totalClips}幕)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "点击前往播放与分镜工作台",
+                                    fontSize = 9.sp,
+                                    color = AgnesCyan
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (message.actionType == "VIDEO_SCRIPT") {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
@@ -551,3 +640,4 @@ fun ChatMessageItem(
         }
     }
 }
+

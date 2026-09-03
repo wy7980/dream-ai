@@ -68,12 +68,20 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+enum class ChatIntentMode {
+    AUTO,
+    CHAT,
+    IMAGE_GEN,
+    VIDEO_GEN
+}
+
 data class AgnesApiConfig(
     val apiKey: String = "",
     val endpointUrl: String = "https://api.agnes.ai/v1",
-    val modelName: String = "agnes-vision-ultra",
-    val videoModelName: String = "agnes-video-gen-v2",
-    val rateLimitSeconds: Int = 60, // Strictly 1 request per minute (60s)
+    val chatModelName: String = "agnes-chat-pro",
+    val modelName: String = "agnes-vision-ultra", // Image Generation / Remix Model
+    val videoModelName: String = "agnes-video-gen-v2", // Video Generation Model
+    val rateLimitSeconds: Int = 60, // Strictly 1 request per minute (60s) for Image & Video Generation
     val autoStitchVideos: Boolean = true,
     val customAuthHeader: String = "Bearer"
 )

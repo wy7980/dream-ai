@@ -1,10 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,21 +22,30 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -62,10 +75,12 @@ import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesRose
 import com.example.ui.theme.AgnesViolet
+import com.example.ui.theme.AgnesVioletLight
 import com.example.ui.theme.CyberCardBg
 import com.example.ui.theme.CyberCardBorder
 import com.example.ui.viewmodel.AgnesViewModel
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: AgnesViewModel,
@@ -73,9 +88,12 @@ fun SettingsScreen(
 ) {
     val currentConfig by viewModel.config.collectAsState()
     val rateLimitState by viewModel.rateLimitState.collectAsState()
+    val availableModels by viewModel.availableModels.collectAsState()
+    val isFetchingModels by viewModel.isFetchingModels.collectAsState()
 
     var apiKey by remember(currentConfig) { mutableStateOf(currentConfig.apiKey) }
     var endpointUrl by remember(currentConfig) { mutableStateOf(currentConfig.endpointUrl) }
+    var chatModelName by remember(currentConfig) { mutableStateOf(currentConfig.chatModelName) }
     var modelName by remember(currentConfig) { mutableStateOf(currentConfig.modelName) }
     var videoModelName by remember(currentConfig) { mutableStateOf(currentConfig.videoModelName) }
     var rateLimitSeconds by remember(currentConfig) { mutableStateOf(currentConfig.rateLimitSeconds.toString()) }
@@ -85,6 +103,7 @@ fun SettingsScreen(
     var testResultText by remember { mutableStateOf<String?>(null) }
     var isTesting by remember { mutableStateOf(false) }
     var isTestSuccess by remember { mutableStateOf(false) }
+    var fetchStatusText by remember { mutableStateOf<String?>(null) }
 
     val scrollState = rememberScrollState()
 
@@ -122,13 +141,13 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Column {
                 Text(
-                    text = "Agnes API 密钥与限速调度配置",
+                    text = "Agnes API 与多模型分流配置",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Text(
-                    text = "配置官方/第三方 Agnes 访问参数与限速安全保护",
+                    text = "支持对话、生图、生视频模型独立选择与速率分流控制",
                     fontSize = 10.sp,
                     color = Color(0xFF94A3B8)
                 )
@@ -137,7 +156,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Card 1: API Credentials
+        // Card 1: API Endpoint & Key
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -156,22 +175,54 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Agnes API 密钥 (API Key)",
+                        text = "Agnes API 密钥与服务地址",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
+                Text(
+                    text = "服务端点 (Base URL):",
+                    fontSize = 11.sp,
+                    color = Color(0xFFCBD5E1)
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                OutlinedTextField(
+                    value = endpointUrl,
+                    onValueChange = { endpointUrl = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("endpoint_input"),
+                    placeholder = { Text("https://api.agnes.ai/v1", color = Color(0xFF64748B), fontSize = 12.sp) },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AgnesViolet,
+                        unfocusedBorderColor = CyberCardBorder,
+                        focusedContainerColor = Color(0xFF0E1422),
+                        unfocusedContainerColor = Color(0xFF0E1422),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "API Key 密钥:",
+                    fontSize = 11.sp,
+                    color = Color(0xFFCBD5E1)
+                )
+                Spacer(modifier = Modifier.height(3.dp))
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("api_key_input"),
-                    placeholder = { Text("在此粘贴你的 Agnes API Key (例如 agnes_sk_...)", color = Color(0xFF64748B), fontSize = 12.sp) },
+                    placeholder = { Text("在此粘贴你的 Agnes/OpenAI 兼容 API Key", color = Color(0xFF64748B), fontSize = 12.sp) },
                     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
@@ -196,38 +247,151 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Text(
-                    text = "Agnes API 基础端点 (Base URL):",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFCBD5E1)
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                OutlinedTextField(
-                    value = endpointUrl,
-                    onValueChange = { endpointUrl = it },
+                // Fetch Remote Models Button
+                Button(
+                    onClick = {
+                        val tempCfg = AgnesApiConfig(
+                            apiKey = apiKey,
+                            endpointUrl = endpointUrl,
+                            chatModelName = chatModelName,
+                            modelName = modelName,
+                            videoModelName = videoModelName
+                        )
+                        viewModel.updateConfig(tempCfg)
+                        viewModel.fetchModelsFromEndpoint { success, count, msg ->
+                            fetchStatusText = if (success) "✅ 已从服务地址拉取到 $count 个可用模型" else "ℹ️ $msg"
+                        }
+                    },
+                    enabled = !isFetchingModels,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("endpoint_input"),
-                    placeholder = { Text("https://api.agnes.ai/v1", color = Color(0xFF64748B), fontSize = 12.sp) },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AgnesViolet,
-                        unfocusedBorderColor = CyberCardBorder,
-                        focusedContainerColor = Color(0xFF0E1422),
-                        unfocusedContainerColor = Color(0xFF0E1422),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        .height(38.dp)
+                        .testTag("fetch_models_button"),
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF161E31)
                     )
+                ) {
+                    if (isFetchingModels) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            color = AgnesCyan,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("正在从端点拉取模型列表...", fontSize = 11.sp, color = AgnesCyan)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            tint = AgnesCyan,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("根据模型地址自动拉取模型列表 (${availableModels.size} 个可用)", fontSize = 11.sp, color = AgnesCyan, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                if (fetchStatusText != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = fetchStatusText ?: "",
+                        fontSize = 10.sp,
+                        color = AgnesCyan
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Card 2: Model Configuration (Chat, Image, Video)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, AgnesViolet.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+            color = CyberCardBg,
+            tonalElevation = 2.dp
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = AgnesVioletLight,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "专属模型选择与自动匹配",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "支持从列表选择或直接手动输入。若列表中未匹配到，将直接使用您手动输入的模型名称。",
+                    fontSize = 10.sp,
+                    color = Color(0xFF94A3B8),
+                    lineHeight = 14.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // 1. Chat Model
+                ModelInputFieldWithSuggestions(
+                    label = "💬 对话模型 (Chat Model)",
+                    badge = "⚡ 高速率畅聊",
+                    badgeColor = AgnesEmerald,
+                    tooltip = "对话模型拥有极高吞吐速率，日常闲聊、脚本策划、问答不占用 1 分钟生图/生视频冷却排队。",
+                    currentValue = chatModelName,
+                    onValueChange = { chatModelName = it },
+                    availableList = availableModels,
+                    filterKeywords = listOf("chat", "gpt", "claude", "deepseek", "qwen", "gemini", "agent"),
+                    placeholder = "agnes-chat-pro",
+                    testTag = "chat_model_input"
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 2. Image Model
+                ModelInputFieldWithSuggestions(
+                    label = "🎨 图像重绘/生成模型 (Image Model)",
+                    badge = "⏱️ 1分钟限速保护",
+                    badgeColor = AgnesAmber,
+                    tooltip = "只在执行生图或图片变奏重绘时调用，严格受 1 分钟限速保护。",
+                    currentValue = modelName,
+                    onValueChange = { modelName = it },
+                    availableList = availableModels,
+                    filterKeywords = listOf("vision", "sd", "flux", "dall", "midjourney", "diffusion", "image"),
+                    placeholder = "agnes-vision-ultra",
+                    testTag = "image_model_input"
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 3. Video Model
+                ModelInputFieldWithSuggestions(
+                    label = "🎬 视频生成模型 (Video Model)",
+                    badge = "⏱️ 1分钟限速保护",
+                    badgeColor = AgnesAmber,
+                    tooltip = "只在生成多段视频片段时调用，严格每分钟生成 1 段并排队拼接。",
+                    currentValue = videoModelName,
+                    onValueChange = { videoModelName = it },
+                    availableList = availableModels,
+                    filterKeywords = listOf("video", "kling", "luma", "sora", "runway", "cog"),
+                    placeholder = "agnes-video-gen-v2",
+                    testTag = "video_model_input"
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Card 2: Rate Limit Policy Configuration
+        // Card 3: Rate Limit Policy Configuration
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -246,7 +410,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "访问限速策略 (Strict Rate Limiting)",
+                        text = "生图 & 生视频限速保护策略",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -262,7 +426,7 @@ fun SettingsScreen(
                         .padding(8.dp)
                 ) {
                     Text(
-                        text = "💡 重要限速保护：Agnes API 限制每分钟最多调用 1 次。APP 已内置精确到秒级的全自动调度队列，每次调用成功后将自动锁定 60 秒冷却，防止被服务端 429 封禁或报错。",
+                        text = "💡 策略说明：只有生图和生视频模型会触发 1 分钟严格限速冷却；对话模型走高速通道实时响应。APP 内置秒级倒计时调度器，保证多段生图和生视频稳定执行不超频。",
                         fontSize = 11.sp,
                         color = Color(0xFFFDE68A),
                         lineHeight = 15.sp
@@ -272,7 +436,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "调用冷却时间间隔 (秒):",
+                    text = "生图与生视频冷却周期 (秒):",
                     fontSize = 11.sp,
                     color = Color(0xFFCBD5E1)
                 )
@@ -301,7 +465,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Card 3: Model Parameters & Switches
+        // Card 4: Multi-Video Stitching Switch
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -311,15 +475,6 @@ fun SettingsScreen(
             tonalElevation = 2.dp
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = "模型与自动化开关",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -327,13 +482,13 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "多段视频自动拼接",
+                            text = "多段分镜视频自动拼接",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White
                         )
                         Text(
-                            text = "所有分镜片段生成完毕后，自动合成无缝长视频",
+                            text = "生成全部电影片段后，自动合成无缝长视频",
                             fontSize = 10.sp,
                             color = Color(0xFF94A3B8)
                         )
@@ -347,58 +502,12 @@ fun SettingsScreen(
                         )
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "图像重绘模型名称:",
-                    fontSize = 11.sp,
-                    color = Color(0xFFCBD5E1)
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                OutlinedTextField(
-                    value = modelName,
-                    onValueChange = { modelName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AgnesViolet,
-                        unfocusedBorderColor = CyberCardBorder,
-                        focusedContainerColor = Color(0xFF0E1422),
-                        unfocusedContainerColor = Color(0xFF0E1422),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "视频生成模型名称:",
-                    fontSize = 11.sp,
-                    color = Color(0xFFCBD5E1)
-                )
-                Spacer(modifier = Modifier.height(3.dp))
-                OutlinedTextField(
-                    value = videoModelName,
-                    onValueChange = { videoModelName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AgnesViolet,
-                        unfocusedBorderColor = CyberCardBorder,
-                        focusedContainerColor = Color(0xFF0E1422),
-                        unfocusedContainerColor = Color(0xFF0E1422),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    )
-                )
             }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Test API Connection Button & Feedback
+        // Actions: Test Connection & Save Config
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -410,6 +519,7 @@ fun SettingsScreen(
                     val testConfig = AgnesApiConfig(
                         apiKey = apiKey,
                         endpointUrl = endpointUrl,
+                        chatModelName = chatModelName,
                         modelName = modelName,
                         videoModelName = videoModelName,
                         rateLimitSeconds = rateLimitSeconds.toIntOrNull() ?: 60,
@@ -460,6 +570,7 @@ fun SettingsScreen(
                     val updated = AgnesApiConfig(
                         apiKey = apiKey,
                         endpointUrl = endpointUrl,
+                        chatModelName = chatModelName,
                         modelName = modelName,
                         videoModelName = videoModelName,
                         rateLimitSeconds = rateLimitSeconds.toIntOrNull() ?: 60,
@@ -484,7 +595,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "保存配置",
+                    text = "保存所有配置",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -498,14 +609,14 @@ fun SettingsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isTestSuccess) AgnesEmerald.copy(alpha = 0.15f) else AgnesRose.copy(alpha = 0.15f))
-                    .border(
-                        1.dp,
-                        if (isTestSuccess) AgnesEmerald.copy(alpha = 0.5f) else AgnesRose.copy(alpha = 0.5f),
-                        RoundedCornerShape(8.dp)
-                    )
-                    .padding(10.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (isTestSuccess) AgnesEmerald.copy(alpha = 0.15f) else AgnesRose.copy(alpha = 0.15f))
+                .border(
+                    1.dp,
+                    if (isTestSuccess) AgnesEmerald.copy(alpha = 0.5f) else AgnesRose.copy(alpha = 0.5f),
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -528,3 +639,146 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(20.dp))
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun ModelInputFieldWithSuggestions(
+    label: String,
+    badge: String,
+    badgeColor: Color,
+    tooltip: String,
+    currentValue: String,
+    onValueChange: (String) -> Unit,
+    availableList: List<String>,
+    filterKeywords: List<String>,
+    placeholder: String,
+    testTag: String
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // Matching suggestions based on user input
+    val matchedSuggestions = remember(currentValue, availableList) {
+        if (currentValue.isBlank()) {
+            availableList.filter { model -> filterKeywords.any { k -> model.contains(k, ignoreCase = true) } }
+                .ifEmpty { availableList.take(6) }
+        } else {
+            availableList.filter { it.contains(currentValue.trim(), ignoreCase = true) }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFCBD5E1)
+            )
+            Box(
+                modifier = Modifier
+                    .background(badgeColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                    .border(0.5.dp, badgeColor.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = badge,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = badgeColor
+                )
+            }
+        }
+
+        Text(
+            text = tooltip,
+            fontSize = 9.sp,
+            color = Color(0xFF64748B),
+            lineHeight = 12.sp,
+            modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+        )
+
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedTextField(
+                value = currentValue,
+                onValueChange = {
+                    onValueChange(it)
+                    expanded = true
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true)
+                    .testTag(testTag),
+                placeholder = { Text(placeholder, color = Color(0xFF64748B), fontSize = 12.sp) },
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                },
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AgnesViolet,
+                    unfocusedBorderColor = CyberCardBorder,
+                    focusedContainerColor = Color(0xFF0E1422),
+                    unfocusedContainerColor = Color(0xFF0E1422),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
+            )
+
+            if (matchedSuggestions.isNotEmpty()) {
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.background(Color(0xFF161E31))
+                ) {
+                    matchedSuggestions.take(8).forEach { suggestion ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = suggestion,
+                                    fontSize = 12.sp,
+                                    color = if (suggestion.equals(currentValue, ignoreCase = true)) AgnesCyan else Color.White
+                                )
+                            },
+                            onClick = {
+                                onValueChange(suggestion)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Quick Suggestion Chips below input
+        if (matchedSuggestions.isNotEmpty() && matchedSuggestions.size <= 5) {
+            Spacer(modifier = Modifier.height(4.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                matchedSuggestions.take(4).forEach { sug ->
+                    Surface(
+                        onClick = { onValueChange(sug) },
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (sug.equals(currentValue, ignoreCase = true)) AgnesViolet.copy(alpha = 0.3f) else Color(0xFF161E31),
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, if (sug.equals(currentValue, ignoreCase = true)) AgnesViolet else CyberCardBorder)
+                    ) {
+                        Text(
+                            text = sug,
+                            fontSize = 9.sp,
+                            color = if (sug.equals(currentValue, ignoreCase = true)) AgnesVioletLight else Color(0xFF94A3B8),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

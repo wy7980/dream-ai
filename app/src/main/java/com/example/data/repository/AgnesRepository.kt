@@ -46,6 +46,7 @@ class AgnesRepository(
         return AgnesApiConfig(
             apiKey = prefs.getString("api_key", "") ?: "",
             endpointUrl = prefs.getString("endpoint_url", "https://api.agnes.ai/v1") ?: "https://api.agnes.ai/v1",
+            chatModelName = prefs.getString("chat_model_name", "agnes-chat-pro") ?: "agnes-chat-pro",
             modelName = prefs.getString("model_name", "agnes-vision-ultra") ?: "agnes-vision-ultra",
             videoModelName = prefs.getString("video_model_name", "agnes-video-gen-v2") ?: "agnes-video-gen-v2",
             rateLimitSeconds = prefs.getInt("rate_limit_seconds", 60),
@@ -58,6 +59,7 @@ class AgnesRepository(
         prefs.edit()
             .putString("api_key", config.apiKey.trim())
             .putString("endpoint_url", config.endpointUrl.trim())
+            .putString("chat_model_name", config.chatModelName.trim())
             .putString("model_name", config.modelName.trim())
             .putString("video_model_name", config.videoModelName.trim())
             .putInt("rate_limit_seconds", config.rateLimitSeconds)
@@ -67,6 +69,14 @@ class AgnesRepository(
 
         rateLimitManager.updateCooldownInterval(config.rateLimitSeconds)
         _configFlow.value = config
+    }
+
+    suspend fun fetchRemoteModels(): Result<List<String>> {
+        return agnesClient.fetchAvailableModels(_configFlow.value)
+    }
+
+    suspend fun generateChatReply(history: List<ChatMessage>, prompt: String): Result<String> {
+        return agnesClient.generateChatReply(_configFlow.value, history, prompt)
     }
 
     suspend fun testConnection(): Result<String> {
