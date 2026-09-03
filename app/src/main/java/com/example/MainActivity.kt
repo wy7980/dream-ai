@@ -182,11 +182,20 @@ fun MainAppContent(viewModel: AgnesViewModel) {
                     AppNavTab.GALLERY -> GalleryScreen(
                         viewModel = viewModel,
                         onOpenProjectInStudio = { project ->
+                            viewModel.selectProject(project)
                             if (project.type == ProjectType.VIDEO_SCRIPT_AND_STITCH) {
                                 selectedTab = AppNavTab.VIDEO
                             } else {
                                 selectedTab = AppNavTab.IMAGE
                             }
+                        },
+                        onConvertToVideo = { imgUri, prompt ->
+                            pipelineInitialImage = imgUri
+                            pipelineInitialPrompt = prompt
+                            selectedTab = AppNavTab.VIDEO
+                        },
+                        onNavigateToCreate = { isVideo ->
+                            selectedTab = if (isVideo) AppNavTab.VIDEO else AppNavTab.IMAGE
                         }
                     )
                     AppNavTab.SETTINGS -> SettingsScreen(
