@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.max
+import kotlin.math.min
 
 class RateLimitManager(
     private var cooldownIntervalSeconds: Int = 60
@@ -124,4 +125,47 @@ class RateLimitManager(
         val elapsed = (now - lastRequestTimestamp) / 1000L
         return max(0L, cooldownIntervalSeconds - elapsed).toInt()
     }
+
+    /**
+     * Runs [block] inside the rate limiter, retrying with exponential backoff when the server
+     * signals a transient rate limit (HTTP 429 / `rate_limit_exceeded`). [block] must throw
+     * [RateLimitException] for a retryable response and any other exception to fail fast.
+     */
+    suspend fun <T> executeRateLimitedWithRetry(
+        taskName: String,
+        maxAttempts: Int = 4,
+        baseDelayMs: Long = 3_000L,
+        block: suspend (attempt: Int) -> T
+    ): T {
+        var attempt = 1
+        while (true) {
+            try {
+                return executeRateLimited(taskName) { block(attempt) }
+            } catch (e: RateLimitException) {
+                if (attempt >= maxAttempts) throw e
+                // Honor server-provided Retry-After when present, otherwise exponential backoff.
+                val serverDelayMs = (e.retryAfterSeconds ?: 0).toLong() * 1000L
+                val backoffMs = max(baseDelayMs * (1L shl (attempt - 1)), serverDelayMs)
+                val cappedMs = min(backoffMs, 60_000L)
+                _rateLimitState.update {
+                    it.copy(
+                        isCoolingDown = true,
+                        remainingSeconds = (cappedMs / 1000L).toInt(),
+                        currentExecutingTask = "$taskName (限流退避重试 ${attempt + 1}/$maxAttempts, 等待 ${cappedMs / 1000L}s...)"
+                    )
+                }
+                delay(cappedMs)
+                attempt++
+            }
+        }
+    }
 }
+
+/**
+ * Signals a transient, retryable server-side rate limit. Carries the optional `Retry-After`
+ * delay (in seconds) parsed from the response so callers can back off precisely.
+ */
+class RateLimitException(
+    message: String,
+    val retryAfterSeconds: Int? = null
+) : Exception(message)
