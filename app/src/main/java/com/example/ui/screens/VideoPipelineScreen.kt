@@ -70,8 +70,14 @@ import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppInputBg
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
+import androidx.compose.material3.MaterialTheme
 import com.example.ui.viewmodel.AgnesViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,7 +111,7 @@ fun VideoPipelineScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 12.dp)
             .testTag("video_pipeline_screen"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -144,12 +150,12 @@ fun VideoPipelineScreen(
                         text = "AI 视频分镜拆解与无缝拼接流水线",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Text(
                         text = "智能分镜规划 ➔ 顺序生成多段视频 (1次/分) ➔ 一键拼接合成",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8)
+                        color = AppTextSecondary
                     )
                 }
             }
@@ -161,8 +167,8 @@ fun VideoPipelineScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .border(1.dp, CyberCardBorder, RoundedCornerShape(12.dp)),
-                color = CyberCardBg,
+                    .border(1.dp, AppCardBorder, RoundedCornerShape(12.dp)),
+                color = AppCardBg,
                 tonalElevation = 2.dp
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -170,7 +176,7 @@ fun VideoPipelineScreen(
                         text = "1. 上传起始参考图 / 关键帧 (可选):",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -213,7 +219,7 @@ fun VideoPipelineScreen(
                                 .height(38.dp),
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF161E31)
+                                containerColor = AppSubtleBg
                             )
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -227,7 +233,7 @@ fun VideoPipelineScreen(
                                 Text(
                                     text = "选择参考图片 (将作为分镜第 1 幕的首帧基底)",
                                     fontSize = 11.sp,
-                                    color = Color(0xFFCBD5E1)
+                                    color = AppTextSecondary
                                 )
                             }
                         }
@@ -239,7 +245,7 @@ fun VideoPipelineScreen(
                         text = "2. 电影短片主题与剧情构思:",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -250,17 +256,17 @@ fun VideoPipelineScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("video_theme_input"),
-                        placeholder = { Text("描述故事主线、人物动作与视觉高潮...", color = Color(0xFF64748B), fontSize = 12.sp) },
+                        placeholder = { Text("描述故事主线、人物动作与视觉高潮...", color = AppTextSecondary, fontSize = 12.sp) },
                         minLines = 2,
                         maxLines = 4,
                         shape = RoundedCornerShape(8.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = AgnesCyan,
-                            unfocusedBorderColor = CyberCardBorder,
-                            focusedContainerColor = Color(0xFF0E1422),
-                            unfocusedContainerColor = Color(0xFF0E1422),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
+                            unfocusedBorderColor = AppCardBorder,
+                            focusedContainerColor = AppInputBg,
+                            unfocusedContainerColor = AppInputBg,
+                            focusedTextColor = AppTextPrimary,
+                            unfocusedTextColor = AppTextPrimary
                         )
                     )
 
@@ -276,7 +282,7 @@ fun VideoPipelineScreen(
                             Text(
                                 text = "分镜幕数:",
                                 fontSize = 11.sp,
-                                color = Color(0xFF94A3B8),
+                                color = AppTextSecondary,
                                 fontWeight = FontWeight.Medium
                             )
                             Spacer(modifier = Modifier.height(3.dp))
@@ -286,7 +292,7 @@ fun VideoPipelineScreen(
                                     Surface(
                                         onClick = { sceneCount = count },
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (isSelected) AgnesCyan else Color(0xFF161E31),
+                                        color = if (isSelected) AgnesCyan else AppSubtleBg,
                                         modifier = Modifier.size(width = 40.dp, height = 28.dp)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
@@ -294,7 +300,7 @@ fun VideoPipelineScreen(
                                                 text = "${count}幕",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) Color(0xFF0A0D14) else Color.White
+                                                color = if (isSelected) Color(0xFF0A0D14) else AppTextPrimary
                                             )
                                         }
                                     }
@@ -306,7 +312,7 @@ fun VideoPipelineScreen(
                             Text(
                                 text = "限速预估用时:",
                                 fontSize = 11.sp,
-                                color = Color(0xFF94A3B8),
+                                color = AppTextSecondary,
                                 fontWeight = FontWeight.Medium
                             )
                             Spacer(modifier = Modifier.height(3.dp))
@@ -383,7 +389,7 @@ fun VideoPipelineScreen(
                     text = "合成视频预览与分镜时间轴:",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = AppTextPrimary
                 )
             }
 
@@ -408,12 +414,12 @@ fun VideoPipelineScreen(
                         text = "各分镜详细脚本与生成状态 (${selectedClips.size}幕):",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
 
                     Box(
                         modifier = Modifier
-                            .background(Color(0xFF161E31), RoundedCornerShape(4.dp))
+                            .background(AppSubtleBg, RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(

@@ -93,8 +93,15 @@ import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesRose
 import com.example.ui.theme.AgnesViolet
 import com.example.ui.theme.AgnesVioletLight
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppDivider
+import com.example.ui.theme.AppInputBg
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 import com.example.ui.viewmodel.AgnesViewModel
 import java.util.UUID
 
@@ -245,7 +252,7 @@ fun SettingsMainView(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .border(1.dp, AgnesViolet.copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
-            color = CyberCardBg,
+            color = AppCardBg,
             tonalElevation = 2.dp
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -258,7 +265,7 @@ fun SettingsMainView(
                         text = "⚡ 当前已激活配置概览",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Box(
                         modifier = Modifier
@@ -433,7 +440,8 @@ fun ConfigOverviewItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF0E1422), RoundedCornerShape(6.dp))
+            .background(AppSubtleBg, RoundedCornerShape(6.dp))
+            .border(0.5.dp, AppCardBorder, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -441,7 +449,7 @@ fun ConfigOverviewItem(
         Text(
             text = label,
             fontSize = 11.sp,
-            color = Color(0xFFCBD5E1),
+            color = AppTextSecondary,
             fontWeight = FontWeight.Medium
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -455,7 +463,7 @@ fun ConfigOverviewItem(
             Text(
                 text = modelName,
                 fontSize = 11.sp,
-                color = Color.White,
+                color = AppTextPrimary,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -625,10 +633,10 @@ fun ProvidersConfigSubPage(
                     .clip(RoundedCornerShape(10.dp))
                     .border(
                         1.dp,
-                        if (provider.isDefault) AgnesCyan.copy(alpha = 0.5f) else CyberCardBorder,
+                        if (provider.isDefault) AgnesCyan.copy(alpha = 0.5f) else AppCardBorder,
                         RoundedCornerShape(10.dp)
                     ),
-                color = CyberCardBg,
+                color = AppCardBg,
                 tonalElevation = 2.dp
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -642,7 +650,7 @@ fun ProvidersConfigSubPage(
                                 text = provider.name,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = AppTextPrimary
                             )
                             if (provider.isDefault) {
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -682,7 +690,7 @@ fun ProvidersConfigSubPage(
                     Text(
                         text = "端点: ${provider.endpointUrl}",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8)
+                        color = AppTextSecondary
                     )
 
                     Text(
@@ -695,7 +703,7 @@ fun ProvidersConfigSubPage(
                         Text(
                             text = provider.description,
                             fontSize = 9.sp,
-                            color = Color(0xFF64748B),
+                            color = AppTextSecondary,
                             lineHeight = 12.sp,
                             modifier = Modifier.padding(top = 2.dp)
                         )
@@ -735,11 +743,11 @@ fun ProvidersConfigSubPage(
                             },
                             modifier = Modifier.weight(1f).height(34.dp),
                             shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                            colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                         ) {
-                            Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Icon(imageVector = Icons.Default.Tune, contentDescription = null, tint = AppTextPrimary, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "配置参数 / 密钥", fontSize = 10.sp, color = Color.White)
+                            Text(text = "配置参数 / 密钥", fontSize = 10.sp, color = AppTextPrimary)
                         }
                     }
 
@@ -788,7 +796,7 @@ fun ProvidersConfigSubPage(
                     text = if (isAddingNew) "添加新的 Provider" else "编辑 Provider: ${prov.name}",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = AppTextPrimary
                 )
             },
             text = {
@@ -797,7 +805,7 @@ fun ProvidersConfigSubPage(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text(text = "Provider 名称:", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                    Text(text = "Provider 名称:", fontSize = 11.sp, color = AppTextSecondary)
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
@@ -807,7 +815,7 @@ fun ProvidersConfigSubPage(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(text = "API Base URL (端点地址):", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                    Text(text = "API Base URL (端点地址):", fontSize = 11.sp, color = AppTextSecondary)
                     OutlinedTextField(
                         value = editEndpoint,
                         onValueChange = { editEndpoint = it },
@@ -818,7 +826,7 @@ fun ProvidersConfigSubPage(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(text = "API Key (密钥):", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                    Text(text = "API Key (密钥):", fontSize = 11.sp, color = AppTextSecondary)
                     OutlinedTextField(
                         value = editApiKey,
                         onValueChange = { editApiKey = it },
@@ -839,7 +847,7 @@ fun ProvidersConfigSubPage(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(text = "授权请求头 (Auth Header, 默认 Bearer):", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                    Text(text = "授权请求头 (Auth Header, 默认 Bearer):", fontSize = 11.sp, color = AppTextSecondary)
                     OutlinedTextField(
                         value = editAuthHeader,
                         onValueChange = { editAuthHeader = it },
@@ -849,7 +857,7 @@ fun ProvidersConfigSubPage(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(text = "备注说明:", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                    Text(text = "备注说明:", fontSize = 11.sp, color = AppTextSecondary)
                     OutlinedTextField(
                         value = editDescription,
                         onValueChange = { editDescription = it },
@@ -879,10 +887,10 @@ fun ProvidersConfigSubPage(
             },
             dismissButton = {
                 TextButton(onClick = { editingProvider = null }) {
-                    Text("取消", color = Color(0xFF94A3B8))
+                    Text("取消", color = AppTextSecondary)
                 }
             },
-            containerColor = Color(0xFF161E31)
+            containerColor = AppCardBg
         )
     }
 }
@@ -1084,8 +1092,8 @@ fun TaskModelConfigurationCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(10.dp)),
-        color = CyberCardBg,
+            .border(1.dp, AppCardBorder, RoundedCornerShape(10.dp)),
+        color = AppCardBg,
         tonalElevation = 2.dp
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -1099,7 +1107,7 @@ fun TaskModelConfigurationCard(
                     text = taskTitle,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = AppTextPrimary
                 )
                 Box(
                     modifier = Modifier
@@ -1115,7 +1123,7 @@ fun TaskModelConfigurationCard(
             Text(
                 text = taskDescription,
                 fontSize = 9.sp,
-                color = Color(0xFF94A3B8),
+                color = AppTextSecondary,
                 lineHeight = 12.sp
             )
 
@@ -1148,18 +1156,18 @@ fun TaskModelConfigurationCard(
                     shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AgnesCyan,
-                        unfocusedBorderColor = CyberCardBorder,
-                        focusedContainerColor = Color(0xFF0E1422),
-                        unfocusedContainerColor = Color(0xFF0E1422),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        unfocusedBorderColor = AppCardBorder,
+                        focusedContainerColor = AppInputBg,
+                        unfocusedContainerColor = AppInputBg,
+                        focusedTextColor = AppTextPrimary,
+                        unfocusedTextColor = AppTextPrimary
                     )
                 )
 
                 ExposedDropdownMenu(
                     expanded = isProviderDropdownExpanded,
                     onDismissRequest = { isProviderDropdownExpanded = false },
-                    modifier = Modifier.background(Color(0xFF161E31))
+                    modifier = Modifier.background(AppCardBg)
                 ) {
                     providers.forEach { prov ->
                         DropdownMenuItem(
@@ -1169,12 +1177,12 @@ fun TaskModelConfigurationCard(
                                         text = prov.name,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (prov.id == selectedProviderId) AgnesCyan else Color.White
+                                        color = if (prov.id == selectedProviderId) AgnesCyan else AppTextPrimary
                                     )
                                     Text(
                                         text = prov.endpointUrl,
                                         fontSize = 9.sp,
-                                        color = Color(0xFF94A3B8)
+                                        color = AppTextSecondary
                                     )
                                 }
                             },
@@ -1278,14 +1286,14 @@ fun RateLimitAndGenerationSubPage(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
                 .border(1.dp, AgnesAmber.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
-            color = CyberCardBg,
+            color = AppCardBg,
             tonalElevation = 2.dp
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = Icons.Default.Speed, contentDescription = null, tint = AgnesAmber, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "严格限速策略 (Rate Limiting)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(text = "严格限速策略 (Rate Limiting)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AppTextPrimary)
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1299,28 +1307,28 @@ fun RateLimitAndGenerationSubPage(
                     Text(
                         text = "💡 说明：对话任务走高速通道实时响应；生图与生视频任务严格受安全周期保护（默认 60 秒），防止 API 返回 429 报错，保证分镜流水线平稳渲染。",
                         fontSize = 11.sp,
-                        color = Color(0xFFFDE68A),
+                        color = if (MaterialTheme.colorScheme.background == com.example.ui.theme.LightBackground) Color(0xFFB45309) else Color(0xFFFDE68A),
                         lineHeight = 15.sp
                     )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Text(text = "生图与生视频冷却间隔 (秒):", fontSize = 11.sp, color = Color(0xFFCBD5E1))
+                Text(text = "生图与生视频冷却间隔 (秒):", fontSize = 11.sp, color = AppTextSecondary)
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = rateLimitSeconds,
                     onValueChange = { rateLimitSeconds = it },
                     modifier = Modifier.fillMaxWidth().testTag("rate_limit_input"),
-                    placeholder = { Text("60", color = Color(0xFF64748B), fontSize = 12.sp) },
+                    placeholder = { Text("60", color = AppTextSecondary, fontSize = 12.sp) },
                     shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AgnesAmber,
-                        unfocusedBorderColor = CyberCardBorder,
-                        focusedContainerColor = Color(0xFF0E1422),
-                        unfocusedContainerColor = Color(0xFF0E1422),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        unfocusedBorderColor = AppCardBorder,
+                        focusedContainerColor = AppInputBg,
+                        unfocusedContainerColor = AppInputBg,
+                        focusedTextColor = AppTextPrimary,
+                        unfocusedTextColor = AppTextPrimary
                     )
                 )
             }
@@ -1333,8 +1341,8 @@ fun RateLimitAndGenerationSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, CyberCardBorder, RoundedCornerShape(10.dp)),
-            color = CyberCardBg,
+                .border(1.dp, AppCardBorder, RoundedCornerShape(10.dp)),
+            color = AppCardBg,
             tonalElevation = 2.dp
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -1344,8 +1352,8 @@ fun RateLimitAndGenerationSubPage(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "多段分镜视频自动拼接合成", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                        Text(text = "在各分镜片段逐个生成完毕后，自动拼合成无缝电影短片", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                        Text(text = "多段分镜视频自动拼接合成", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = AppTextPrimary)
+                        Text(text = "在各分镜片段逐个生成完毕后，自动拼合成无缝电影短片", fontSize = 10.sp, color = AppTextSecondary)
                     }
                     Switch(
                         checked = autoStitch,
@@ -1470,7 +1478,7 @@ fun AppearanceSubPage(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = AgnesCyan,
                         uncheckedThumbColor = AgnesVioletLight,
-                        uncheckedTrackColor = Color(0xFF1E2A3E)
+                        uncheckedTrackColor = AppCardBorder
                     )
                 )
             }
@@ -1615,11 +1623,11 @@ fun ModelInputFieldWithSuggestions(
                 shape = RoundedCornerShape(8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = AgnesViolet,
-                    unfocusedBorderColor = CyberCardBorder,
-                    focusedContainerColor = Color(0xFF0E1422),
-                    unfocusedContainerColor = Color(0xFF0E1422),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
+                    unfocusedBorderColor = AppCardBorder,
+                    focusedContainerColor = AppInputBg,
+                    unfocusedContainerColor = AppInputBg,
+                    focusedTextColor = AppTextPrimary,
+                    unfocusedTextColor = AppTextPrimary
                 )
             )
 
@@ -1627,7 +1635,7 @@ fun ModelInputFieldWithSuggestions(
                 ExposedDropdownMenu(
                     expanded = expanded,
                     onDismissRequest = { expanded = false },
-                    modifier = Modifier.background(Color(0xFF161E31))
+                    modifier = Modifier.background(AppCardBg)
                 ) {
                     matchedSuggestions.take(10).forEach { suggestion ->
                         DropdownMenuItem(
@@ -1635,7 +1643,7 @@ fun ModelInputFieldWithSuggestions(
                                 Text(
                                     text = suggestion,
                                     fontSize = 12.sp,
-                                    color = if (suggestion.equals(currentValue, ignoreCase = true)) AgnesCyan else Color.White
+                                    color = if (suggestion.equals(currentValue, ignoreCase = true)) AgnesCyan else AppTextPrimary
                                 )
                             },
                             onClick = {
@@ -1659,13 +1667,13 @@ fun ModelInputFieldWithSuggestions(
                     Surface(
                         onClick = { onValueChange(sug) },
                         shape = RoundedCornerShape(4.dp),
-                        color = if (sug.equals(currentValue, ignoreCase = true)) AgnesViolet.copy(alpha = 0.3f) else Color(0xFF161E31),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, if (sug.equals(currentValue, ignoreCase = true)) AgnesViolet else CyberCardBorder)
+                        color = if (sug.equals(currentValue, ignoreCase = true)) AgnesViolet.copy(alpha = 0.3f) else AppSubtleBg,
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, if (sug.equals(currentValue, ignoreCase = true)) AgnesViolet else AppCardBorder)
                     ) {
                         Text(
                             text = sug,
                             fontSize = 9.sp,
-                            color = if (sug.equals(currentValue, ignoreCase = true)) AgnesVioletLight else Color(0xFF94A3B8),
+                            color = if (sug.equals(currentValue, ignoreCase = true)) AgnesVioletLight else AppTextSecondary,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }

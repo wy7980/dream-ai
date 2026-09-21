@@ -47,8 +47,11 @@ import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesRose
 import com.example.ui.theme.AgnesViolet
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 
 @Composable
 fun SceneCard(
@@ -65,11 +68,11 @@ fun SceneCard(
                 1.dp,
                 if (clip.status == GenerationStatus.COMPLETED) AgnesEmerald.copy(alpha = 0.5f)
                 else if (clip.status == GenerationStatus.GENERATING_CLIPS) AgnesCyan
-                else CyberCardBorder,
+                else AppCardBorder,
                 RoundedCornerShape(12.dp)
             )
             .testTag("scene_card_${clip.sceneNumber}"),
-        color = CyberCardBg,
+        color = AppCardBg,
         tonalElevation = 2.dp
     ) {
         Column(
@@ -101,7 +104,7 @@ fun SceneCard(
                         text = clip.sceneTitle,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                 }
 
@@ -187,7 +190,7 @@ fun SceneCard(
                         Text(
                             text = "等待调度",
                             fontSize = 9.sp,
-                            color = Color(0xFF94A3B8)
+                            color = AppTextSecondary
                         )
                     }
                 }
@@ -204,7 +207,7 @@ fun SceneCard(
                     modifier = Modifier
                         .size(width = 96.dp, height = 58.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF161E31)),
+                        .background(AppSubtleBg),
                     contentAlignment = Alignment.Center
                 ) {
                     if (clip.status == GenerationStatus.COMPLETED && !clip.videoUrl.isNullOrBlank()) {
@@ -248,7 +251,7 @@ fun SceneCard(
                             Text(
                                 text = "${clip.durationSeconds}s",
                                 fontSize = 9.sp,
-                                color = Color(0xFF94A3B8)
+                                color = AppTextSecondary
                             )
                         }
                     }
@@ -284,14 +287,14 @@ fun SceneCard(
                         Icon(
                             imageVector = Icons.Default.Mic,
                             contentDescription = null,
-                            tint = Color(0xFF94A3B8),
+                            tint = AppTextSecondary,
                             modifier = Modifier.size(10.dp).padding(top = 2.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = clip.narration,
                             fontSize = 10.sp,
-                            color = Color(0xFFCBD5E1),
+                            color = AppTextSecondary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             lineHeight = 14.sp

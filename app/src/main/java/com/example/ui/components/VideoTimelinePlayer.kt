@@ -70,6 +70,11 @@ import com.example.data.model.SceneClip
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 import com.example.ui.theme.CyberCardBg
 import com.example.ui.theme.CyberCardBorder
 import androidx.compose.ui.graphics.graphicsLayer
@@ -130,7 +135,7 @@ fun VideoTimelinePlayer(
             .clip(RoundedCornerShape(14.dp))
             .border(1.dp, AgnesViolet.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
             .testTag("video_timeline_player"),
-        color = CyberCardBg,
+        color = AppCardBg,
         tonalElevation = 3.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
@@ -152,7 +157,7 @@ fun VideoTimelinePlayer(
                         text = "拼接完整长视频 (${totalDurationSeconds}s)",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                 }
 
@@ -181,7 +186,7 @@ fun VideoTimelinePlayer(
                     .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color.Black)
-                    .border(1.dp, CyberCardBorder, RoundedCornerShape(10.dp))
+                    .border(1.dp, AppCardBorder, RoundedCornerShape(10.dp))
                     .clickable {
                         if (isClipCompleted) isPlaying = !isPlaying
                     },
@@ -374,7 +379,7 @@ fun VideoTimelinePlayer(
             Text(
                 text = "分镜序列时间轴 (点击可跳至指定片段):",
                 fontSize = 11.sp,
-                color = Color(0xFF94A3B8),
+                color = AppTextSecondary,
                 fontWeight = FontWeight.Medium
             )
 
@@ -389,10 +394,10 @@ fun VideoTimelinePlayer(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) AgnesViolet.copy(alpha = 0.25f) else Color(0xFF161E31))
+                            .background(if (isSelected) AgnesViolet.copy(alpha = 0.25f) else AppSubtleBg)
                             .border(
                                 1.dp,
-                                if (isSelected) AgnesCyan else Color(0xFF1E2A3E),
+                                if (isSelected) AgnesCyan else AppCardBorder,
                                 RoundedCornerShape(8.dp)
                             )
                             .clickable {
@@ -414,19 +419,19 @@ fun VideoTimelinePlayer(
                                     text = "片段 ${clip.sceneNumber}",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) AgnesCyan else Color.White
+                                    color = if (isSelected) AgnesCyan else AppTextPrimary
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
                                     text = "${clip.durationSeconds}s",
                                     fontSize = 9.sp,
-                                    color = Color(0xFF94A3B8)
+                                    color = AppTextSecondary
                                 )
                             }
                             Text(
                                 text = clip.sceneTitle,
                                 fontSize = 9.sp,
-                                color = Color.White.copy(alpha = 0.8f),
+                                color = AppTextSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.width(80.dp)
@@ -473,7 +478,7 @@ fun VideoTimelinePlayer(
                         Icon(
                             imageVector = Icons.Default.Replay,
                             contentDescription = "Restart",
-                            tint = Color(0xFFCBD5E1),
+                            tint = AppTextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -484,8 +489,8 @@ fun VideoTimelinePlayer(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF161E31))
-                            .border(1.dp, Color(0xFF1E2A3E), RoundedCornerShape(6.dp))
+                            .background(AppSubtleBg)
+                            .border(1.dp, AppCardBorder, RoundedCornerShape(6.dp))
                             .clickable {
                                 playbackSpeed = when (playbackSpeed) {
                                     1.0f -> 1.5f

@@ -78,8 +78,12 @@ import com.example.data.skill.SkillInvocationRecord
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesViolet
 import com.example.ui.theme.AgnesVioletDark
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 
 /**
  * Top horizontal loaded skills bar in Agent Tab.
@@ -98,8 +102,8 @@ fun AgentLoadedSkillsBar(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF111625))
-            .border(1.dp, CyberCardBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .background(AppCardBg)
+            .border(1.dp, AppCardBorder, RoundedCornerShape(10.dp))
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -107,7 +111,7 @@ fun AgentLoadedSkillsBar(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(Brush.horizontalGradient(listOf(AgnesVioletDark, Color(0xFF1E2640))))
+                .background(Brush.horizontalGradient(listOf(AgnesVioletDark, AgnesViolet)))
                 .clickable { onOpenSkillHub() }
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -115,7 +119,7 @@ fun AgentLoadedSkillsBar(
             Icon(
                 imageVector = Icons.Default.Extension,
                 contentDescription = "已装载技能",
-                tint = AgnesCyan,
+                tint = Color.White,
                 modifier = Modifier.size(14.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
@@ -123,7 +127,7 @@ fun AgentLoadedSkillsBar(
                 text = "技能库 ($activeCount/${skills.size})",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = AgnesCyan
+                color = Color.White
             )
         }
 
@@ -142,10 +146,10 @@ fun AgentLoadedSkillsBar(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (isEnabled) Color(0xFF1A2238) else Color(0xFF141720))
+                        .background(if (isEnabled) AgnesCyan.copy(alpha = 0.15f) else AppSubtleBg)
                         .border(
                             1.dp,
-                            if (isEnabled) AgnesCyan.copy(alpha = 0.5f) else Color(0xFF2C3246),
+                            if (isEnabled) AgnesCyan.copy(alpha = 0.5f) else AppCardBorder,
                             RoundedCornerShape(6.dp)
                         )
                         .clickable { onSkillClick(skill) }
@@ -160,7 +164,7 @@ fun AgentLoadedSkillsBar(
                     Text(
                         text = skill.name.take(6),
                         fontSize = 11.sp,
-                        color = if (isEnabled) Color.White else Color(0xFF7E8B9B),
+                        color = if (isEnabled) AppTextPrimary else AppTextSecondary,
                         fontWeight = if (isEnabled) FontWeight.Medium else FontWeight.Normal
                     )
                     if (isEnabled) {
@@ -204,7 +208,7 @@ fun ActiveSkillExecutingBanner(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF13192B)),
+        colors = CardDefaults.cardColors(containerColor = AppCardBg),
         border = androidx.compose.foundation.BorderStroke(1.dp, AgnesCyan.copy(alpha = alphaAnim))
     ) {
         Row(
@@ -224,7 +228,7 @@ fun ActiveSkillExecutingBanner(
                     Text(
                         text = "${record.iconEmoji} 智能体正在执行技能: ",
                         fontSize = 12.sp,
-                        color = Color(0xFFB0BDD4)
+                        color = AppTextSecondary
                     )
                     Text(
                         text = record.skillName,
@@ -238,7 +242,7 @@ fun ActiveSkillExecutingBanner(
                     Text(
                         text = record.statusMessage,
                         fontSize = 11.sp,
-                        color = Color(0xFF8E9EB6),
+                        color = AppTextSecondary,
                         maxLines = 1
                     )
                 }
@@ -263,7 +267,7 @@ fun AgentSkillManagerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF0F131D),
+        containerColor = AppSurface,
         dragHandle = null
     ) {
         Column(
@@ -298,18 +302,18 @@ fun AgentSkillManagerSheet(
                             text = "智能体技能中心 (Skills)",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = AppTextPrimary
                         )
                         Text(
                             text = "当前已装载 ${skills.size} 个专业能力，可由智能体自主调度",
                             fontSize = 12.sp,
-                            color = Color(0xFF8E9EB6)
+                            color = AppTextSecondary
                         )
                     }
                 }
 
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color.White)
+                    Icon(Icons.Default.Close, contentDescription = "关闭", tint = AppTextPrimary)
                 }
             }
 
@@ -354,10 +358,10 @@ fun SkillDetailCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF151B2A)),
+        colors = CardDefaults.cardColors(containerColor = AppCardBg),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (skill.isEnabled) AgnesCyan.copy(alpha = 0.4f) else Color(0xFF262D3D)
+            if (skill.isEnabled) AgnesCyan.copy(alpha = 0.4f) else AppCardBorder
         )
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -381,21 +385,21 @@ fun SkillDetailCard(
                                 text = skill.name,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = AppTextPrimary
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             // Category Tag
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(AgnesVioletDark)
+                                    .background(AgnesViolet.copy(alpha = 0.2f))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = skill.id,
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = AgnesCyan
+                                    color = AgnesViolet
                                 )
                             }
                         }
@@ -409,8 +413,8 @@ fun SkillDetailCard(
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = AgnesCyan,
-                        uncheckedThumbColor = Color(0xFF7E8B9B),
-                        uncheckedTrackColor = Color(0xFF262D3D)
+                        uncheckedThumbColor = AppTextSecondary,
+                        uncheckedTrackColor = AppCardBorder
                     )
                 )
             }
@@ -421,7 +425,7 @@ fun SkillDetailCard(
             Text(
                 text = skill.description,
                 fontSize = 13.sp,
-                color = Color(0xFFC0CAD8),
+                color = AppTextSecondary,
                 lineHeight = 18.sp
             )
 
@@ -457,14 +461,14 @@ fun SkillDetailCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
-                        .background(Color(0xFF0E131E), RoundedCornerShape(8.dp))
+                        .background(AppSubtleBg, RoundedCornerShape(8.dp))
                         .padding(10.dp)
                 ) {
                     Text(
                         text = "参数契约 (Schema):",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     skill.parameters.forEach { p ->
@@ -483,7 +487,7 @@ fun SkillDetailCard(
                             Text(
                                 text = "${p.description}${if (p.required) " (必填)" else ""}",
                                 fontSize = 11.sp,
-                                color = Color(0xFFA6B4C8)
+                                color = AppTextSecondary
                             )
                         }
                     }
@@ -492,7 +496,7 @@ fun SkillDetailCard(
                     Text(
                         text = "自然语言触发词: ${skill.triggerKeywords.take(6).joinToString(", ")}...",
                         fontSize = 11.sp,
-                        color = Color(0xFF7E8B9B)
+                        color = AppTextSecondary
                     )
                 }
             }
@@ -516,7 +520,7 @@ fun SkillDetailCard(
                 Text(
                     text = "快速填入该技能指令",
                     fontSize = 12.sp,
-                    color = Color.White
+                    color = AppTextPrimary
                 )
             }
         }
@@ -574,7 +578,7 @@ fun AgentDocumentCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF0C101A)
+            containerColor = AppCardBg
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, badgeBorder.copy(alpha = 0.5f))
     ) {
@@ -617,7 +621,7 @@ fun AgentDocumentCard(
                             text = documentName,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = AppTextPrimary,
                             maxLines = 1
                         )
                     }
@@ -631,9 +635,9 @@ fun AgentDocumentCard(
                             Text(
                                 text = documentSize,
                                 fontSize = 10.sp,
-                                color = Color(0xFF94A3B8)
+                                color = AppTextSecondary
                             )
-                            Text(text = "•", fontSize = 10.sp, color = Color(0xFF475569))
+                            Text(text = "•", fontSize = 10.sp, color = AppTextSecondary)
                         }
                         // Tag: Standard Sandbox Ready
                         Text(
@@ -689,8 +693,8 @@ fun AgentDocumentCard(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF161E2E))
-                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp))
+                        .background(AppSubtleBg)
+                        .border(1.dp, AppCardBorder, RoundedCornerShape(8.dp))
                         .clickable { onShareDocument() }
                         .padding(vertical = 7.dp, horizontal = 6.dp),
                     contentAlignment = Alignment.Center
@@ -719,8 +723,8 @@ fun AgentDocumentCard(
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF161E2E))
-                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp))
+                        .background(AppSubtleBg)
+                        .border(1.dp, AppCardBorder, RoundedCornerShape(8.dp))
                         .clickable { onSaveToDownloads() }
                         .padding(vertical = 7.dp, horizontal = 6.dp),
                     contentAlignment = Alignment.Center

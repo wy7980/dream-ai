@@ -53,8 +53,11 @@ import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 
 @Composable
 fun RateLimitBanner(
@@ -102,7 +105,7 @@ fun RateLimitBanner(
                         RoundedCornerShape(8.dp)
                     )
                     .testTag("rate_limit_banner_compact"),
-                color = Color(0xFF111726),
+                color = AppCardBg,
                 tonalElevation = 1.dp
             ) {
                 Column(
@@ -196,7 +199,7 @@ fun RateLimitBanner(
                         } else {
                             Box(
                                 modifier = Modifier
-                                    .background(Color(0xFF1E293B), RoundedCornerShape(4.dp))
+                                    .background(AppSubtleBg, RoundedCornerShape(4.dp))
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             ) {
                                 Text(
@@ -218,7 +221,7 @@ fun RateLimitBanner(
                                 .height(2.dp)
                                 .clip(RoundedCornerShape(1.dp)),
                             color = AgnesAmber,
-                            trackColor = Color(0xFF1E293B)
+                            trackColor = AppCardBorder
                         )
                     }
                 }
@@ -231,7 +234,7 @@ fun RateLimitBanner(
                     .clip(RoundedCornerShape(12.dp))
                     .border(1.dp, borderColor.copy(alpha = if (isCooling) pulseAlpha else 0.4f), RoundedCornerShape(12.dp))
                     .testTag("rate_limit_banner"),
-                color = CyberCardBg,
+                color = AppCardBg,
                 tonalElevation = 2.dp
             ) {
                 Column(
@@ -294,7 +297,7 @@ fun RateLimitBanner(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Box(
                                         modifier = Modifier
-                                            .background(Color(0xFF1E293B), RoundedCornerShape(4.dp))
+                                            .background(AppSubtleBg, RoundedCornerShape(4.dp))
                                             .padding(horizontal = 5.dp, vertical = 1.dp)
                                     ) {
                                         Text(
@@ -309,7 +312,7 @@ fun RateLimitBanner(
                                 Text(
                                     text = if (isCooling) "下一次 API 调用冷却归零后自动发起" else "支持图生图与多段分镜自动化拼接",
                                     fontSize = 10.sp,
-                                    color = Color(0xFF94A3B8)
+                                    color = AppTextSecondary
                                 )
                             }
                         }
@@ -376,7 +379,7 @@ fun RateLimitBanner(
                                         .height(3.dp)
                                         .clip(RoundedCornerShape(1.5.dp)),
                                     color = AgnesAmber,
-                                    trackColor = Color(0xFF1E293B)
+                                    trackColor = AppCardBorder
                                 )
                             }
                         }

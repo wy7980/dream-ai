@@ -50,8 +50,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesViolet
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 
 data class PresetSampleImage(
     val title: String,
@@ -110,10 +112,10 @@ fun ImagePickerBottomSheet(
         }
     }
 
-    ModalBottomSheet(
+        ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = CyberCardBg,
+        containerColor = AppSurface,
         tonalElevation = 8.dp
     ) {
         Column(
@@ -139,14 +141,14 @@ fun ImagePickerBottomSheet(
                         text = "选择或上传参考图片",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color.Gray
+                        tint = AppTextSecondary
                     )
                 }
             }
@@ -193,7 +195,7 @@ fun ImagePickerBottomSheet(
                 text = "或快速选用精选创意样张:",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color(0xFF94A3B8)
+                color = AppTextSecondary
             )
 
             Spacer(modifier = Modifier.height(10.dp))

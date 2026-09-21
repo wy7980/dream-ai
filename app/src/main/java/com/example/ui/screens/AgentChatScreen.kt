@@ -92,8 +92,15 @@ import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
 import com.example.ui.theme.AgnesVioletDark
 import com.example.ui.theme.AgnesVioletLight
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppDivider
+import com.example.ui.theme.AppInputBg
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 import com.example.ui.viewmodel.AgnesViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -144,7 +151,7 @@ fun AgentChatScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .background(AppBackground)
             .testTag("agent_chat_screen")
     ) {
         Column(
@@ -174,7 +181,7 @@ fun AgentChatScreen(
                     Icon(
                         imageVector = Icons.Default.Menu,
                         contentDescription = "历史对话列表",
-                        tint = Color.White,
+                        tint = AppTextPrimary,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -204,7 +211,7 @@ fun AgentChatScreen(
                         text = "Dream AI",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Box(
@@ -248,7 +255,7 @@ fun AgentChatScreen(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "新建对话",
-                            tint = Color.White,
+                            tint = AppTextPrimary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -309,7 +316,7 @@ fun AgentChatScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF161E31), RoundedCornerShape(8.dp))
+                                .background(AppSubtleBg, RoundedCornerShape(8.dp))
                                 .border(1.dp, AgnesCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
                                 .padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -361,7 +368,7 @@ fun AgentChatScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = Color.Gray,
+                                tint = AppTextSecondary,
                                 modifier = Modifier.size(13.dp)
                             )
                         }
@@ -378,13 +385,13 @@ fun AgentChatScreen(
                                 showQuickPrompts = false
                             },
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF161E31),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                            color = AppSubtleBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AppCardBorder)
                         ) {
                             Text(
                                 text = prompt,
                                 fontSize = 10.sp,
-                                color = Color(0xFFCBD5E1),
+                                color = AppTextSecondary,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
@@ -401,11 +408,11 @@ fun AgentChatScreen(
                 .clip(RoundedCornerShape(26.dp))
                 .border(
                     width = 1.dp,
-                    brush = if (inputText.isNotBlank()) Brush.horizontalGradient(listOf(AgnesViolet, AgnesCyan)) else Brush.linearGradient(listOf(CyberCardBorder, CyberCardBorder)),
+                    brush = if (inputText.isNotBlank()) Brush.horizontalGradient(listOf(AgnesViolet, AgnesCyan)) else Brush.linearGradient(listOf(AppCardBorder, AppCardBorder)),
                     shape = RoundedCornerShape(26.dp)
                 )
                 .testTag("chat_input_pill_container"),
-            color = Color(0xFF111726),
+            color = AppInputBg,
             tonalElevation = 2.dp
         ) {
             Column(
@@ -425,7 +432,7 @@ fun AgentChatScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF161E31))
+                                .background(AppSubtleBg)
                                 .border(1.dp, AgnesCyan, RoundedCornerShape(6.dp))
                         ) {
                             AsyncImage(
@@ -446,7 +453,7 @@ fun AgentChatScreen(
                             Text(
                                 text = "将作为图生图重绘或分镜视频故事底模",
                                 fontSize = 8.sp,
-                                color = Color(0xFF94A3B8)
+                                color = AppTextSecondary
                             )
                         }
                         IconButton(
@@ -456,7 +463,7 @@ fun AgentChatScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Remove Image",
-                                tint = Color.Gray,
+                                tint = AppTextSecondary,
                                 modifier = Modifier.size(13.dp)
                             )
                         }
@@ -479,7 +486,7 @@ fun AgentChatScreen(
                         Icon(
                             imageVector = Icons.Default.AddPhotoAlternate,
                             contentDescription = "Attach Image",
-                            tint = if (selectedImageUri != null) AgnesCyan else Color(0xFF94A3B8),
+                            tint = if (selectedImageUri != null) AgnesCyan else AppTextSecondary,
                             modifier = Modifier.size(19.dp)
                         )
                     }
@@ -495,7 +502,7 @@ fun AgentChatScreen(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = "Quick Prompts",
-                            tint = if (showQuickPrompts) AgnesAmber else Color(0xFF64748B),
+                            tint = if (showQuickPrompts) AgnesAmber else AppTextSecondary,
                             modifier = Modifier.size(17.dp)
                         )
                     }
@@ -520,7 +527,7 @@ fun AgentChatScreen(
                             Text(
                                 text = placeholderHint,
                                 fontSize = 12.sp,
-                                color = Color(0xFF64748B),
+                                color = AppTextSecondary,
                                 maxLines = 1
                             )
                         }
@@ -532,7 +539,7 @@ fun AgentChatScreen(
                                 .testTag("chat_input_field"),
                             textStyle = TextStyle(
                                 fontSize = 13.sp,
-                                color = Color.White
+                                color = AppTextPrimary
                             ),
                             cursorBrush = SolidColor(AgnesCyan),
                             maxLines = 4
@@ -559,7 +566,7 @@ fun AgentChatScreen(
                                 brush = if (canSend) {
                                     Brush.linearGradient(listOf(AgnesViolet, AgnesCyan))
                                 } else {
-                                    Brush.linearGradient(listOf(Color(0xFF1E293B), Color(0xFF1E293B)))
+                                    Brush.linearGradient(listOf(AppSubtleBg, AppSubtleBg))
                                 },
                                 shape = CircleShape
                             )
@@ -568,7 +575,7 @@ fun AgentChatScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = if (canSend) Color.White else Color(0xFF475569),
+                            tint = if (canSend) Color.White else AppTextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -593,7 +600,7 @@ fun AgentChatScreen(
                 modifier = Modifier
                     .width(280.dp)
                     .fillMaxHeight()
-                    .background(Color(0xFF0F172A))
+                    .background(AppCardBg)
                     .clickable(enabled = false) {}
                     .padding(16.dp)
             ) {
@@ -625,7 +632,7 @@ fun AgentChatScreen(
                             text = "Dream AI 历史对话",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = AppTextPrimary
                         )
                     }
 
@@ -633,7 +640,7 @@ fun AgentChatScreen(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "关闭",
-                            tint = Color(0xFF94A3B8)
+                            tint = AppTextSecondary
                         )
                     }
                 }
@@ -648,7 +655,7 @@ fun AgentChatScreen(
                         viewModel.showToast("已开启新对话")
                     },
                     shape = RoundedCornerShape(12.dp),
-                    color = AgnesVioletDark,
+                    color = AgnesViolet.copy(alpha = 0.15f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, AgnesViolet),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -668,7 +675,7 @@ fun AgentChatScreen(
                             text = "新建对话",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = AppTextPrimary
                         )
                     }
                 }
@@ -679,7 +686,7 @@ fun AgentChatScreen(
                     text = "历史创作项目与对话",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF94A3B8)
+                    color = AppTextSecondary
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -700,7 +707,7 @@ fun AgentChatScreen(
                                 Text(
                                     text = "暂无历史对话记录",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF64748B)
+                                    color = AppTextSecondary
                                 )
                             }
                         }
@@ -718,8 +725,8 @@ fun AgentChatScreen(
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
-                            color = CyberCardBg,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder),
+                            color = AppSubtleBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AppCardBorder),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -738,13 +745,13 @@ fun AgentChatScreen(
                                         text = project.title,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color.White,
+                                        color = AppTextPrimary,
                                         maxLines = 1
                                     )
                                     Text(
                                         text = project.statusMessage,
                                         fontSize = 10.sp,
-                                        color = Color(0xFF94A3B8),
+                                        color = AppTextSecondary,
                                         maxLines = 1
                                     )
                                 }
@@ -762,7 +769,7 @@ fun AgentChatScreen(
                         showHistoryDrawer = false
                     },
                     shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF1E293B),
+                    color = AppSubtleBg,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -856,8 +863,8 @@ fun ChatMessageItem(
                 bottomStart = if (isUser) 16.dp else 4.dp,
                 bottomEnd = if (isUser) 4.dp else 16.dp
             ),
-            color = if (isUser) AgnesVioletDark else CyberCardBg,
-            border = androidx.compose.foundation.BorderStroke(1.dp, if (isUser) AgnesViolet else CyberCardBorder),
+            color = if (isUser) AgnesViolet.copy(alpha = 0.2f) else AppCardBg,
+            border = androidx.compose.foundation.BorderStroke(1.dp, if (isUser) AgnesViolet.copy(alpha = 0.6f) else AppCardBorder),
             modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.fillMaxWidth(0.92f)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -866,7 +873,7 @@ fun ChatMessageItem(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF1E1738))
+                            .background(AgnesViolet.copy(alpha = 0.15f))
                             .border(1.dp, AgnesViolet, RoundedCornerShape(6.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -909,7 +916,7 @@ fun ChatMessageItem(
                 MarkdownText(
                     markdown = message.content,
                     fontSize = 13.sp,
-                    textColor = Color.White,
+                    textColor = AppTextPrimary,
                     lineHeight = 19.sp
                 )
 
@@ -956,7 +963,7 @@ fun ChatMessageItem(
                         Surface(
                             onClick = onSaveImage,
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF161E31)
+                            color = AppSubtleBg
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
@@ -971,7 +978,7 @@ fun ChatMessageItem(
                         Surface(
                             onClick = onShareImage,
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF161E31)
+                            color = AppSubtleBg
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
@@ -991,7 +998,7 @@ fun ChatMessageItem(
                     Surface(
                         onClick = onOpenVideoStudio,
                         shape = RoundedCornerShape(8.dp),
-                        color = Color.Black,
+                        color = AppSubtleBg,
                         border = androidx.compose.foundation.BorderStroke(1.dp, AgnesCyan)
                     ) {
                         Row(
@@ -1012,7 +1019,7 @@ fun ChatMessageItem(
                                     text = "🎬 多段拼接电影已就绪 (${project.totalClips}幕)",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.White
+                                    color = AppTextPrimary
                                 )
                                 Text(
                                     text = "点击前往播放与分镜工作台",

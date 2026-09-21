@@ -56,6 +56,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -94,8 +95,13 @@ import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
 import com.example.ui.theme.AgnesVioletLight
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 import com.example.ui.viewmodel.AgnesViewModel
 import java.io.File
 import java.text.SimpleDateFormat
@@ -142,7 +148,7 @@ fun GalleryScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .testTag("gallery_screen")
     ) {
@@ -175,12 +181,12 @@ fun GalleryScreen(
                         text = "创作作品集与历史档案",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Text(
                         text = "共 ${projects.size} 个作品 (点击即可直接大图/播放查看)",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8)
+                        color = AppTextSecondary
                     )
                 }
             }
@@ -188,8 +194,8 @@ fun GalleryScreen(
             // View toggle (Grid / List)
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF161E31),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                color = AppSubtleBg,
+                border = androidx.compose.foundation.BorderStroke(1.dp, AppCardBorder)
             ) {
                 Row(modifier = Modifier.padding(2.dp)) {
                     IconButton(
@@ -199,7 +205,7 @@ fun GalleryScreen(
                         Icon(
                             imageVector = Icons.Default.GridView,
                             contentDescription = "Grid View",
-                            tint = if (isGridView) AgnesCyan else Color(0xFF64748B),
+                            tint = if (isGridView) AgnesCyan else AppTextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -210,7 +216,7 @@ fun GalleryScreen(
                         Icon(
                             imageVector = Icons.Default.ViewList,
                             contentDescription = "List View",
-                            tint = if (!isGridView) AgnesCyan else Color(0xFF64748B),
+                            tint = if (!isGridView) AgnesCyan else AppTextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -233,8 +239,8 @@ fun GalleryScreen(
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = AgnesViolet,
                     selectedLabelColor = Color.White,
-                    containerColor = Color(0xFF161E31),
-                    labelColor = Color(0xFFCBD5E1)
+                    containerColor = AppSubtleBg,
+                    labelColor = AppTextSecondary
                 )
             )
             FilterChip(
@@ -245,8 +251,8 @@ fun GalleryScreen(
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = AgnesViolet,
                     selectedLabelColor = Color.White,
-                    containerColor = Color(0xFF161E31),
-                    labelColor = Color(0xFFCBD5E1)
+                    containerColor = AppSubtleBg,
+                    labelColor = AppTextSecondary
                 )
             )
             FilterChip(
@@ -257,8 +263,8 @@ fun GalleryScreen(
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = AgnesCyan,
                     selectedLabelColor = Color(0xFF0F172A),
-                    containerColor = Color(0xFF161E31),
-                    labelColor = Color(0xFFCBD5E1)
+                    containerColor = AppSubtleBg,
+                    labelColor = AppTextSecondary
                 )
             )
         }
@@ -280,8 +286,8 @@ fun GalleryScreen(
                     Box(
                         modifier = Modifier
                             .size(60.dp)
-                            .background(Color(0xFF161E31), CircleShape)
-                            .border(1.dp, CyberCardBorder, CircleShape),
+                            .background(AppSubtleBg, CircleShape)
+                            .border(1.dp, AppCardBorder, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -296,13 +302,13 @@ fun GalleryScreen(
                         text = "暂无对应作品",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "可通过助手对话或工作台生成高清图片与多段拼接视频",
                         fontSize = 11.sp,
-                        color = Color(0xFF94A3B8)
+                        color = AppTextSecondary
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -318,7 +324,7 @@ fun GalleryScreen(
                         Button(
                             onClick = { onNavigateToCreate(true) },
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                            colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                         ) {
                             Icon(imageVector = Icons.Default.Movie, contentDescription = null, tint = AgnesCyan, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -447,8 +453,8 @@ fun ProjectGridCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(12.dp)),
-        color = CyberCardBg,
+            .border(1.dp, AppCardBorder, RoundedCornerShape(12.dp)),
+        color = AppCardBg,
         tonalElevation = 3.dp
     ) {
         Column {
@@ -457,7 +463,7 @@ fun ProjectGridCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(if (isVideo) 16f / 10f else 1f)
-                    .background(Color(0xFF161E31)),
+                    .background(AppSubtleBg),
                 contentAlignment = Alignment.Center
             ) {
                 if (previewUri != null) {
@@ -563,7 +569,7 @@ fun ProjectGridCard(
                     text = project.prompt,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
+                    color = AppTextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 15.sp
@@ -579,7 +585,7 @@ fun ProjectGridCard(
                     Text(
                         text = "$timeStr • ${project.stylePreset}",
                         fontSize = 9.sp,
-                        color = Color(0xFF94A3B8),
+                        color = AppTextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -592,7 +598,7 @@ fun ProjectGridCard(
                         Icon(
                             imageVector = Icons.Default.DeleteOutline,
                             contentDescription = "Delete",
-                            tint = Color(0xFF64748B),
+                            tint = AppTextSecondary,
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -622,8 +628,8 @@ fun ProjectDetailedListCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, CyberCardBorder, RoundedCornerShape(12.dp)),
-        color = CyberCardBg,
+            .border(1.dp, AppCardBorder, RoundedCornerShape(12.dp)),
+        color = AppCardBg,
         tonalElevation = 2.dp
     ) {
         Row(
@@ -637,7 +643,7 @@ fun ProjectDetailedListCard(
                 modifier = Modifier
                     .size(width = 110.dp, height = 76.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF161E31))
+                    .background(AppSubtleBg)
                     .border(1.dp, if (isVideo) AgnesCyan.copy(alpha = 0.4f) else AgnesViolet.copy(alpha = 0.4f), RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
@@ -729,7 +735,7 @@ fun ProjectDetailedListCard(
                     text = project.prompt,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
+                    color = AppTextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 16.sp
@@ -745,7 +751,7 @@ fun ProjectDetailedListCard(
                     Text(
                         text = "$timeStr • ${project.stylePreset}",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8)
+                        color = AppTextSecondary
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -772,7 +778,7 @@ fun ProjectDetailedListCard(
                             Icon(
                                 imageVector = Icons.Default.DeleteOutline,
                                 contentDescription = "Delete",
-                                tint = Color(0xFF64748B),
+                                tint = AppTextSecondary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -811,10 +817,10 @@ fun DirectImageViewerDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF070A10))
+                .background(AppBackground)
                 .padding(12.dp)
                 .testTag("direct_image_viewer_dialog"),
-            color = Color(0xFF070A10)
+            color = AppBackground
         ) {
             Column(
                 modifier = Modifier
@@ -847,12 +853,12 @@ fun DirectImageViewerDialog(
                                 text = "🎨 高清图像查看与变奏",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = AppTextPrimary
                             )
                             Text(
                                 text = "$timeStr • 比例 ${project.aspectRatio} • ${project.stylePreset}",
                                 fontSize = 10.sp,
-                                color = Color(0xFF94A3B8)
+                                color = AppTextSecondary
                             )
                         }
                     }
@@ -861,9 +867,9 @@ fun DirectImageViewerDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .size(32.dp)
-                            .background(Color(0xFF161E31), CircleShape)
+                            .background(AppSubtleBg, CircleShape)
                     ) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = AppTextPrimary, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -961,16 +967,16 @@ fun DirectImageViewerDialog(
                         Surface(
                             onClick = { showComparison = !showComparison },
                             shape = RoundedCornerShape(6.dp),
-                            color = if (showComparison) AgnesCyan.copy(alpha = 0.2f) else Color(0xFF161E31),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (showComparison) AgnesCyan else CyberCardBorder)
+                            color = if (showComparison) AgnesCyan.copy(alpha = 0.2f) else AppSubtleBg,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (showComparison) AgnesCyan else AppCardBorder)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(imageVector = Icons.Default.Compare, contentDescription = null, tint = if (showComparison) AgnesCyan else Color.White, modifier = Modifier.size(14.dp))
+                                Icon(imageVector = Icons.Default.Compare, contentDescription = null, tint = if (showComparison) AgnesCyan else AppTextPrimary, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (showComparison) "退出原图对比" else "对比原参考图", fontSize = 10.sp, color = if (showComparison) AgnesCyan else Color.White)
+                                Text(if (showComparison) "退出原图对比" else "对比原参考图", fontSize = 10.sp, color = if (showComparison) AgnesCyan else AppTextPrimary)
                             }
                         }
 
@@ -983,7 +989,7 @@ fun DirectImageViewerDialog(
                                 colors = SliderDefaults.colors(
                                     thumbColor = AgnesCyan,
                                     activeTrackColor = AgnesCyan,
-                                    inactiveTrackColor = Color(0xFF1E293B)
+                                    inactiveTrackColor = AppCardBorder
                                 )
                             )
                         }
@@ -996,8 +1002,8 @@ fun DirectImageViewerDialog(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
-                    color = CyberCardBg,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                    color = AppCardBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AppCardBorder)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
@@ -1010,7 +1016,7 @@ fun DirectImageViewerDialog(
                         Text(
                             text = project.prompt,
                             fontSize = 12.sp,
-                            color = Color.White,
+                            color = AppTextPrimary,
                             lineHeight = 17.sp
                         )
 
@@ -1022,17 +1028,17 @@ fun DirectImageViewerDialog(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .background(Color(0xFF161E31), RoundedCornerShape(4.dp))
+                                    .background(AppSubtleBg, RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("风格: ${project.stylePreset}", fontSize = 9.sp, color = Color(0xFFCBD5E1))
+                                Text("风格: ${project.stylePreset}", fontSize = 9.sp, color = AppTextSecondary)
                             }
                             Box(
                                 modifier = Modifier
-                                    .background(Color(0xFF161E31), RoundedCornerShape(4.dp))
+                                    .background(AppSubtleBg, RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("画幅: ${project.aspectRatio}", fontSize = 9.sp, color = Color(0xFFCBD5E1))
+                                Text("画幅: ${project.aspectRatio}", fontSize = 9.sp, color = AppTextSecondary)
                             }
                             Box(
                                 modifier = Modifier
@@ -1091,7 +1097,7 @@ fun DirectImageViewerDialog(
                             .weight(1f)
                             .height(38.dp),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                        colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                     ) {
                         Icon(imageVector = Icons.Default.Download, contentDescription = null, tint = AgnesEmerald, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1104,7 +1110,7 @@ fun DirectImageViewerDialog(
                             .weight(0.8f)
                             .height(38.dp),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                        colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                     ) {
                         Icon(imageVector = Icons.Default.Share, contentDescription = null, tint = AgnesCyan, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1154,10 +1160,10 @@ fun DirectVideoViewerDialog(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF070A10))
+                .background(AppBackground)
                 .padding(12.dp)
                 .testTag("direct_video_viewer_dialog"),
-            color = Color(0xFF070A10)
+            color = AppBackground
         ) {
             Column(
                 modifier = Modifier
@@ -1190,12 +1196,12 @@ fun DirectVideoViewerDialog(
                                 text = "🎬 多段拼接长视频播放器",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = AppTextPrimary
                             )
                             Text(
                                 text = "$timeStr • ${project.completedClips}/${project.totalClips} 幕已无缝合成",
                                 fontSize = 10.sp,
-                                color = Color(0xFF94A3B8)
+                                color = AppTextSecondary
                             )
                         }
                     }
@@ -1204,9 +1210,9 @@ fun DirectVideoViewerDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .size(32.dp)
-                            .background(Color(0xFF161E31), CircleShape)
+                            .background(AppSubtleBg, CircleShape)
                     ) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = AppTextPrimary, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -1225,8 +1231,8 @@ fun DirectVideoViewerDialog(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
-                    color = CyberCardBg,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                    color = AppCardBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AppCardBorder)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(
@@ -1243,7 +1249,7 @@ fun DirectVideoViewerDialog(
                             Text(
                                 text = "总时长: ${clips.sumOf { it.durationSeconds }}s",
                                 fontSize = 10.sp,
-                                color = Color(0xFF94A3B8)
+                                color = AppTextSecondary
                             )
                         }
 
@@ -1254,7 +1260,7 @@ fun DirectVideoViewerDialog(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 4.dp)
-                                    .background(Color(0xFF161E31), RoundedCornerShape(6.dp))
+                                    .background(AppSubtleBg, RoundedCornerShape(6.dp))
                                     .padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1283,7 +1289,7 @@ fun DirectVideoViewerDialog(
                                             text = clip.sceneTitle,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color.White
+                                            color = AppTextPrimary
                                         )
                                         Text(
                                             text = "${clip.durationSeconds}s • ${clip.cameraMovement}",
@@ -1297,7 +1303,7 @@ fun DirectVideoViewerDialog(
                                     Text(
                                         text = clip.visualPrompt,
                                         fontSize = 10.sp,
-                                        color = Color(0xFF94A3B8),
+                                        color = AppTextSecondary,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -1353,7 +1359,7 @@ fun DirectVideoViewerDialog(
                             .weight(1f)
                             .height(38.dp),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                        colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                     ) {
                         Icon(imageVector = Icons.Default.Share, contentDescription = null, tint = AgnesCyan, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1370,7 +1376,7 @@ fun DirectVideoViewerDialog(
                     ) {
                         Icon(imageVector = Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFF87171), modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("删除视频", fontSize = 11.sp, color = Color(0xFFF87171))
+                        Text("删除作品", fontSize = 11.sp, color = Color(0xFFF87171))
                     }
                 }
 

@@ -50,7 +50,12 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppDivider
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 
 sealed class MarkdownBlock {
     data class Heading(val level: Int, val text: String) : MarkdownBlock()
@@ -137,7 +142,9 @@ fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
 /**
  * Formats inline Markdown syntax (**bold**, *italic*, `code`, ~~strike~~, [links])
  */
-fun renderInlineMarkdown(text: String, textColor: Color = Color.White): AnnotatedString {
+@Composable
+fun renderInlineMarkdown(text: String, textColor: Color = AppTextPrimary): AnnotatedString {
+    val subtleBg = AppSubtleBg
     return buildAnnotatedString {
         val pattern = Regex("(\\*\\*.*?\\*\\*|__.*?__|`.*?`|~~.*?~~|\\[.*?\\]\\(.*?>?\\)|\\*.*?\\*|_.*?_)")
         var lastIndex = 0
@@ -164,7 +171,7 @@ fun renderInlineMarkdown(text: String, textColor: Color = Color.White): Annotate
                     withStyle(
                         SpanStyle(
                             fontFamily = FontFamily.Monospace,
-                            background = Color(0xFF0F172A),
+                            background = subtleBg,
                             color = AgnesCyan,
                             fontSize = 11.5.sp
                         )
@@ -254,7 +261,7 @@ fun MarkdownText(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF1E293B))
+                            .background(AppSubtleBg)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -309,7 +316,7 @@ fun MarkdownText(
 
                 is MarkdownBlock.Divider -> {
                     HorizontalDivider(
-                        color = CyberCardBorder,
+                        color = AppDivider,
                         thickness = 1.dp,
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
@@ -329,8 +336,8 @@ fun CodeBlockCard(
 
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF0F172A),
-        border = BorderStroke(1.dp, Color(0xFF334155)),
+        color = AppCardBg,
+        border = BorderStroke(1.dp, AppCardBorder),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -340,7 +347,7 @@ fun CodeBlockCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1E293B))
+                    .background(AppSubtleBg)
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -370,14 +377,14 @@ fun CodeBlockCard(
                         Icon(
                             imageVector = if (isCopied) Icons.Default.Check else Icons.Default.ContentCopy,
                             contentDescription = "Copy",
-                            tint = if (isCopied) AgnesEmerald else Color.LightGray,
+                            tint = if (isCopied) AgnesEmerald else AppTextSecondary,
                             modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = if (isCopied) "已复制" else "复制",
                             fontSize = 10.sp,
-                            color = if (isCopied) AgnesEmerald else Color.LightGray
+                            color = if (isCopied) AgnesEmerald else AppTextSecondary
                         )
                     }
                 }
@@ -394,7 +401,7 @@ fun CodeBlockCard(
                     text = code,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = Color(0xFFE2E8F0),
+                    color = AppTextPrimary,
                     lineHeight = 16.sp
                 )
             }

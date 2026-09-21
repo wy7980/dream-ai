@@ -70,8 +70,15 @@ import com.example.ui.components.RateLimitBanner
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
-import com.example.ui.theme.CyberCardBg
-import com.example.ui.theme.CyberCardBorder
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.AppCardBg
+import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppDivider
+import com.example.ui.theme.AppInputBg
+import com.example.ui.theme.AppSubtleBg
+import com.example.ui.theme.AppSurface
+import com.example.ui.theme.AppTextPrimary
+import com.example.ui.theme.AppTextSecondary
 import com.example.ui.viewmodel.AgnesViewModel
 
 val ART_STYLES = listOf(
@@ -112,7 +119,7 @@ fun ImageStudioScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0D14))
+            .background(AppBackground)
             .verticalScroll(scrollState)
             .padding(12.dp)
             .testTag("image_studio_screen")
@@ -149,12 +156,12 @@ fun ImageStudioScreen(
                     text = "AI 图像重绘变奏工作台",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = AppTextPrimary
                 )
                 Text(
                     text = "基于 Agnes API 图生图算法与多风格重塑",
                     fontSize = 11.sp,
-                    color = Color(0xFF94A3B8)
+                    color = AppTextSecondary
                 )
             }
         }
@@ -167,9 +174,9 @@ fun ImageStudioScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, if (selectedImageUri != null) AgnesCyan else CyberCardBorder, RoundedCornerShape(12.dp))
+                .border(1.dp, if (selectedImageUri != null) AgnesCyan else AppCardBorder, RoundedCornerShape(12.dp))
                 .testTag("upload_image_card"),
-            color = CyberCardBg,
+            color = AppCardBg,
             tonalElevation = 2.dp
         ) {
             if (selectedImageUri != null) {
@@ -247,13 +254,13 @@ fun ImageStudioScreen(
                         text = "点击上传参考图 / 选取精选样张",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = AppTextPrimary
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Agnes AI 将根据参考图片进行构图重塑与变奏",
                         fontSize = 10.sp,
-                        color = Color(0xFF94A3B8)
+                        color = AppTextSecondary
                     )
                 }
             }
@@ -266,7 +273,7 @@ fun ImageStudioScreen(
             text = "重绘提示词描述:",
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFFCBD5E1)
+            color = AppTextPrimary
         )
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -277,17 +284,17 @@ fun ImageStudioScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("image_prompt_input"),
-            placeholder = { Text("输入你想生成的画面细节、光影、风格...", color = Color(0xFF64748B), fontSize = 12.sp) },
+            placeholder = { Text("输入你想生成的画面细节、光影、风格...", color = AppTextSecondary, fontSize = 12.sp) },
             minLines = 2,
             maxLines = 4,
             shape = RoundedCornerShape(10.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = AgnesViolet,
-                unfocusedBorderColor = CyberCardBorder,
-                focusedContainerColor = CyberCardBg,
-                unfocusedContainerColor = CyberCardBg,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                unfocusedBorderColor = AppCardBorder,
+                focusedContainerColor = AppInputBg,
+                unfocusedContainerColor = AppInputBg,
+                focusedTextColor = AppTextPrimary,
+                unfocusedTextColor = AppTextPrimary
             )
         )
 
@@ -298,7 +305,7 @@ fun ImageStudioScreen(
             text = "艺术风格选择:",
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFFCBD5E1)
+            color = AppTextPrimary
         )
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -309,10 +316,10 @@ fun ImageStudioScreen(
                 Surface(
                     onClick = { selectedStyle = key },
                     shape = RoundedCornerShape(8.dp),
-                    color = if (isSelected) AgnesViolet else Color(0xFF161E31),
+                    color = if (isSelected) AgnesViolet else AppSubtleBg,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        if (isSelected) AgnesCyan else CyberCardBorder
+                        if (isSelected) AgnesCyan else AppCardBorder
                     ),
                     modifier = Modifier.testTag("style_$key")
                 ) {
@@ -333,7 +340,7 @@ fun ImageStudioScreen(
                             text = name,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = Color.White
+                            color = if (isSelected) Color.White else AppTextPrimary
                         )
                     }
                 }
@@ -347,7 +354,7 @@ fun ImageStudioScreen(
             text = "画面比例:",
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFFCBD5E1)
+            color = AppTextPrimary
         )
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -361,10 +368,10 @@ fun ImageStudioScreen(
                 Surface(
                     onClick = { selectedRatio = ratio },
                     shape = RoundedCornerShape(6.dp),
-                    color = if (isSelected) AgnesCyan.copy(alpha = 0.2f) else Color(0xFF161E31),
+                    color = if (isSelected) AgnesCyan.copy(alpha = 0.2f) else AppSubtleBg,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        if (isSelected) AgnesCyan else CyberCardBorder
+                        if (isSelected) AgnesCyan else AppCardBorder
                     ),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -372,7 +379,7 @@ fun ImageStudioScreen(
                         text = ratio,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (isSelected) AgnesCyan else Color(0xFF94A3B8),
+                        color = if (isSelected) AgnesCyan else AppTextSecondary,
                         modifier = Modifier.padding(vertical = 6.dp),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
@@ -442,7 +449,7 @@ fun ImageStudioScreen(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .border(1.dp, AgnesViolet.copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
-                color = CyberCardBg,
+                color = AppCardBg,
                 tonalElevation = 4.dp
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -455,7 +462,7 @@ fun ImageStudioScreen(
                             text = "生成结果 (Agnes AI)",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = AppTextPrimary
                         )
                         Box(
                             modifier = Modifier
@@ -504,7 +511,7 @@ fun ImageStudioScreen(
                                 .height(40.dp)
                                 .testTag("save_image_button"),
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                            colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Download,
@@ -530,7 +537,7 @@ fun ImageStudioScreen(
                                 .height(40.dp)
                                 .testTag("share_image_button"),
                             shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161E31))
+                            colors = ButtonDefaults.buttonColors(containerColor = AppSubtleBg)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
