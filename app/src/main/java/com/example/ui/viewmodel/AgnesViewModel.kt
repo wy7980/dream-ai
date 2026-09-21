@@ -14,6 +14,13 @@ import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
 import com.example.data.repository.AgnesRepository
+import com.example.data.skill.AgentDecision
+import com.example.data.skill.AgentDecisionEngine
+import com.example.data.skill.AgentSkill
+import com.example.data.skill.AgentSkillRegistry
+import com.example.data.skill.InvocationStatus
+import com.example.data.skill.SkillExecutionContext
+import com.example.data.skill.SkillInvocationRecord
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +58,15 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     private val _chatIntentMode = MutableStateFlow(com.example.data.model.ChatIntentMode.AUTO)
     val chatIntentMode: StateFlow<com.example.data.model.ChatIntentMode> = _chatIntentMode.asStateFlow()
 
+    // Agent Skills System
+    val skillRegistry = AgentSkillRegistry(repository, agnesClient)
+    private val decisionEngine = AgentDecisionEngine(skillRegistry, agnesClient)
+
+    val skills: StateFlow<List<AgentSkill>> = skillRegistry.skills
+
+    private val _currentExecutingSkill = MutableStateFlow<SkillInvocationRecord?>(null)
+    val currentExecutingSkill: StateFlow<SkillInvocationRecord?> = _currentExecutingSkill.asStateFlow()
+
     private val _selectedProject = MutableStateFlow<GenerationProject?>(null)
     val selectedProject: StateFlow<GenerationProject?> = _selectedProject.asStateFlow()
 
@@ -72,11 +88,17 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             repository.chatMessages.collect { list ->
                 if (list.isEmpty()) {
                     repository.saveAgentReply(
-                        replyText = "你好！我是你的 Dream AI 全能创作智能体 🎬✨\n\n你可以和我：\n💬 **自由畅聊**：探讨创意构想、润色提示词（对话模型拥有更高吞吐速率，无需排队）\n🎨 **智能生图 / 重绘**：描述画面或发送参考图，自动调用生图模型（1分钟限速保护）\n🎬 **分镜生视频**：一句话生成多幕电影短片并自动拼接成片（1分钟限速保护）\n\n可在输入框上方切换专属模式，或在「设置」中自动拉取模型列表！"
+                        replyText = "你好！我是 **Dream AI 创作智能体** 🧠⚡\n\n我已支持自主加载与调度多种专业技能（Skills）：\n- 🎨 **AI 图像生成与风格重绘**：基于文本或参考图生成高清画作、壁纸与艺术变奏\n- 🎬 **AI 电影分镜与视频流水线**：全自动影视分镜规划、多段视频逐幕渲染与无缝拼接\n- ✨ **视觉提示词专家润色**：中英文专业摄影级光影构图与渲染材质提示词\n- 📋 **导演级分镜规划**：好莱坞工业标准视听镜头语言设计与剧本拆解\n\n你可以通过自然语言直接向我提问或下达创作指令，我将自主识别并调用相应 Skill 执行任务！"
                     )
                 }
             }
         }
+    }
+
+    fun toggleSkill(skillId: String, enabled: Boolean) {
+        skillRegistry.setSkillEnabled(skillId, enabled)
+        val stateText = if (enabled) "已启用" else "已停用"
+        _toastMessage.value = "技能 [$skillId] $stateText"
     }
 
     fun setChatIntentMode(mode: com.example.data.model.ChatIntentMode) {
@@ -208,71 +230,143 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             repository.sendChatMessage(text, attachedImageUri)
 
             val mode = _chatIntentMode.value
-            val lower = text.lowercase()
+            _isGenerating.value = true
+            _progressMessage.value = "Dream AI 智能体决策中..."
 
-            val isVideoIntent = mode == com.example.data.model.ChatIntentMode.VIDEO_GEN ||
-                    (mode == com.example.data.model.ChatIntentMode.AUTO && (
-                            lower.contains("视频") || lower.contains("短片") ||
-                                    lower.contains("分镜") || lower.contains("拼接") ||
-                                    lower.contains("video") || lower.contains("movie") || lower.contains("生成短片")
-                            ))
+            val decision = decisionEngine.decide(
+                config = config.value,
+                userPrompt = text,
+                attachedImageUri = attachedImageUri,
+                chatHistory = chatMessages.value,
+                mode = mode
+            )
 
-            val isImageIntent = mode == com.example.data.model.ChatIntentMode.IMAGE_GEN ||
-                    (mode == com.example.data.model.ChatIntentMode.AUTO && (
-                            attachedImageUri != null ||
-                                    lower.contains("画") || lower.contains("生图") ||
-                                    lower.contains("重绘") || lower.contains("变奏") ||
-                                    lower.contains("图片") || lower.contains("插画") ||
-                                    lower.contains("壁纸") || lower.contains("image") || lower.contains("draw")
-                            ))
-
-            when {
-                isVideoIntent -> {
-                    // Task 1: Video Generation (Video Model with strict 60s cooldown per clip)
+            when (decision) {
+                is AgentDecision.DirectChatReply -> {
+                    _isGenerating.value = false
+                    _progressMessage.value = ""
                     repository.saveAgentReply(
-                        replyText = "🎬 收到你的视频生成指令！我正在调用视频生成模型（${config.value.videoModelName}）规划电影分镜脚本，并将在 1 分钟限速调度队列中逐段生成并自动拼接。",
-                        actionType = "VIDEO_SCRIPT"
-                    )
-                    startVideoPipeline(
-                        themePrompt = if (text.isNotBlank()) text else "基于参考画面的电影级多幕视频短片",
-                        sourceImageUri = attachedImageUri,
-                        sceneCount = 4,
-                        stylePreset = "Cinematic 3D"
-                    )
-                }
-                isImageIntent -> {
-                    // Task 2: Image Generation / Remix (Image Model with strict 60s cooldown)
-                    repository.saveAgentReply(
-                        replyText = "🎨 收到！已调度图像生成模型（${config.value.modelName}），正在 1 分钟限速保护队列中为你进行高清重绘与创意变奏...",
-                        actionType = "GENERATING"
-                    )
-                    generateImage(
-                        prompt = if (text.isNotBlank()) text else "基于参考图片的艺术变奏创作",
-                        stylePreset = "Cinematic 3D",
-                        aspectRatio = "16:9",
-                        sourceImageUri = attachedImageUri,
-                        onSuccess = { proj ->
-                            viewModelScope.launch {
-                                repository.saveAgentReply(
-                                    replyText = "✨ 为你生成的新创意图片已就绪！已依据构思与参考图完成高清重绘。",
-                                    relatedProjectId = proj.id,
-                                    actionType = "IMAGE_RESULT"
-                                )
-                            }
-                        }
-                    )
-                }
-                else -> {
-                    // Task 3: Conversational Chat (Chat Model with high rate limit, fast & non-blocking)
-                    val history = chatMessages.value
-                    val replyResult = repository.generateChatReply(history, text)
-                    val replyContent = replyResult.getOrNull() ?: "你好！我是你的 Agnes AI 智能助手，有什么我可以协助你的？"
-                    repository.saveAgentReply(
-                        replyText = replyContent,
+                        replyText = decision.replyText,
                         actionType = "CHAT_REPLY"
                     )
                 }
+                is AgentDecision.InvokeSkill -> {
+                    executeSkillInternal(
+                        skill = decision.skill,
+                        arguments = decision.arguments,
+                        preThoughtText = decision.preThoughtText,
+                        attachedImageUri = attachedImageUri
+                    )
+                }
             }
+        }
+    }
+
+    /**
+     * Directly invoke a loaded skill with arguments.
+     */
+    fun invokeSkillManually(skillId: String, arguments: Map<String, Any?>, attachedImageUri: String? = null) {
+        val skill = skillRegistry.getSkill(skillId) ?: return
+        if (!skill.isEnabled) {
+            _toastMessage.value = "技能 [${skill.name}] 当前处于停用状态，请先在技能中心开启。"
+            return
+        }
+
+        viewModelScope.launch {
+            val userText = "调用技能 [${skill.name}]"
+            repository.sendChatMessage(userText, attachedImageUri)
+            executeSkillInternal(
+                skill = skill,
+                arguments = arguments,
+                preThoughtText = "⚡ [用户手动唤起技能] 已加载技能 `[${skill.name}]`。",
+                attachedImageUri = attachedImageUri
+            )
+        }
+    }
+
+    private suspend fun executeSkillInternal(
+        skill: AgentSkill,
+        arguments: Map<String, Any?>,
+        preThoughtText: String,
+        attachedImageUri: String?
+    ) {
+        val startTime = System.currentTimeMillis()
+        _isGenerating.value = true
+        _progressMessage.value = "正在加载技能: ${skill.name}..."
+
+        // Record executing state
+        _currentExecutingSkill.value = SkillInvocationRecord(
+            skillId = skill.id,
+            skillName = skill.name,
+            iconEmoji = skill.iconEmoji,
+            arguments = arguments,
+            status = InvocationStatus.EXECUTING,
+            statusMessage = "正在执行技能: ${skill.name}..."
+        )
+
+        // Save pre-thought message to chat stream
+        val formattedArgs = arguments.entries.joinToString(", ") { "${it.key}: \"${it.value}\"" }
+        repository.saveAgentReply(
+            replyText = "$preThoughtText\n\n⚡ **已装载并调用技能**：`${skill.name}` ${skill.iconEmoji}\n> 入参规格: `{$formattedArgs}`",
+            actionType = "SKILL_CALL"
+        )
+
+        val executionContext = SkillExecutionContext(
+            config = config.value,
+            attachedImageUri = attachedImageUri,
+            onProgress = { step ->
+                _progressMessage.value = step
+                _currentExecutingSkill.value = _currentExecutingSkill.value?.copy(
+                    statusMessage = step
+                )
+            }
+        )
+
+        val result = skill.execute(executionContext, arguments)
+        val elapsed = System.currentTimeMillis() - startTime
+        _isGenerating.value = false
+        _progressMessage.value = ""
+
+        if (result.success) {
+            _currentExecutingSkill.value = _currentExecutingSkill.value?.copy(
+                status = InvocationStatus.SUCCESS,
+                statusMessage = "技能执行成功 (${elapsed}ms)",
+                executionTimeMs = elapsed,
+                resultSummary = result.outputMessage,
+                relatedProjectId = result.relatedProjectId
+            )
+
+            // If a project was generated, update selected project
+            if (result.relatedProjectId != null) {
+                val proj = repository.getProjectDirect(result.relatedProjectId)
+                if (proj != null) {
+                    selectProject(proj)
+                }
+            }
+
+            val stepsFormatted = if (result.intermediateSteps.isNotEmpty()) {
+                "\n\n**工序节点**:\n" + result.intermediateSteps.joinToString("\n") { "✓ $it" }
+            } else ""
+
+            repository.saveAgentReply(
+                replyText = "${result.outputMessage}$stepsFormatted",
+                relatedProjectId = result.relatedProjectId,
+                actionType = when (skill.id) {
+                    "image-generation" -> "IMAGE_RESULT"
+                    "video-generation" -> "VIDEO_SCRIPT"
+                    else -> "SKILL_COMPLETED"
+                }
+            )
+        } else {
+            _currentExecutingSkill.value = _currentExecutingSkill.value?.copy(
+                status = InvocationStatus.FAILED,
+                statusMessage = result.error ?: "执行失败",
+                executionTimeMs = elapsed
+            )
+            repository.saveAgentReply(
+                replyText = "⚠️ 技能 `[${skill.name}]` 执行未完成: ${result.error ?: "未知错误"}",
+                actionType = "SKILL_FAILED"
+            )
         }
     }
 

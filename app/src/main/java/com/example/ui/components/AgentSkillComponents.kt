@@ -1,0 +1,520 @@
+package com.example.ui.components
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.data.skill.AgentSkill
+import com.example.data.skill.InvocationStatus
+import com.example.data.skill.SkillInvocationRecord
+import com.example.ui.theme.AgnesCyan
+import com.example.ui.theme.AgnesViolet
+import com.example.ui.theme.AgnesVioletDark
+import com.example.ui.theme.CyberCardBg
+import com.example.ui.theme.CyberCardBorder
+
+/**
+ * Top horizontal loaded skills bar in Agent Tab.
+ */
+@Composable
+fun AgentLoadedSkillsBar(
+    skills: List<AgentSkill>,
+    onOpenSkillHub: () -> Unit,
+    onSkillClick: (AgentSkill) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val activeCount = skills.count { it.isEnabled }
+    val scrollState = rememberScrollState()
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF111625))
+            .border(1.dp, CyberCardBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Skill Hub trigger badge
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(Brush.horizontalGradient(listOf(AgnesVioletDark, Color(0xFF1E2640))))
+                .clickable { onOpenSkillHub() }
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Extension,
+                contentDescription = "已装载技能",
+                tint = AgnesCyan,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "技能库 ($activeCount/${skills.size})",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = AgnesCyan
+            )
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Horizontal scrollable skill chips
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(scrollState),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            skills.forEach { skill ->
+                val isEnabled = skill.isEnabled
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isEnabled) Color(0xFF1A2238) else Color(0xFF141720))
+                        .border(
+                            1.dp,
+                            if (isEnabled) AgnesCyan.copy(alpha = 0.5f) else Color(0xFF2C3246),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .clickable { onSkillClick(skill) }
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = skill.iconEmoji,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = skill.name.take(6),
+                        fontSize = 11.sp,
+                        color = if (isEnabled) Color.White else Color(0xFF7E8B9B),
+                        fontWeight = if (isEnabled) FontWeight.Medium else FontWeight.Normal
+                    )
+                    if (isEnabled) {
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .background(AgnesCyan, CircleShape)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Banner shown when a Skill is currently executing in real-time.
+ */
+@Composable
+fun ActiveSkillExecutingBanner(
+    record: SkillInvocationRecord?,
+    onDismiss: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    if (record == null || record.status != InvocationStatus.EXECUTING) return
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alphaAnim by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF13192B)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, AgnesCyan.copy(alpha = alphaAnim))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                color = AgnesCyan,
+                strokeWidth = 2.dp
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${record.iconEmoji} 智能体正在执行技能: ",
+                        fontSize = 12.sp,
+                        color = Color(0xFFB0BDD4)
+                    )
+                    Text(
+                        text = record.skillName,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AgnesCyan
+                    )
+                }
+                if (record.statusMessage.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = record.statusMessage,
+                        fontSize = 11.sp,
+                        color = Color(0xFF8E9EB6),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Bottom Sheet for managing and viewing all loaded Skills.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AgentSkillManagerSheet(
+    skills: List<AgentSkill>,
+    onToggleSkill: (String, Boolean) -> Unit,
+    onUseSkillTemplate: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF0F131D),
+        dragHandle = null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(Brush.linearGradient(listOf(AgnesViolet, AgnesCyan)), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Extension,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "智能体技能中心 (Skills)",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "当前已装载 ${skills.size} 个专业能力，可由智能体自主调度",
+                            fontSize = 12.sp,
+                            color = Color(0xFF8E9EB6)
+                        )
+                    }
+                }
+
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "关闭", tint = Color.White)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Skill items
+            skills.forEach { skill ->
+                SkillDetailCard(
+                    skill = skill,
+                    onToggle = { enabled -> onToggleSkill(skill.id, enabled) },
+                    onUseTemplate = {
+                        val prompt = when (skill.id) {
+                            "image-generation" -> "请帮我画一张电影感赛博朋克雨夜街道概念图"
+                            "video-generation" -> "请制作一部关于深海古城探索的多幕视频短片"
+                            "prompt-enhancer" -> "帮我润色一段关于魔法图书馆的摄影级提示词"
+                            "storyboard-director" -> "为一部科幻太空救援电影设计4幕标准导演分镜表"
+                            else -> "调用技能 ${skill.name}"
+                        }
+                        onUseSkillTemplate(prompt)
+                        onDismiss()
+                    }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * Individual card inside the Skill Manager.
+ */
+@Composable
+fun SkillDetailCard(
+    skill: AgentSkill,
+    onToggle: (Boolean) -> Unit,
+    onUseTemplate: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF151B2A)),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (skill.isEnabled) AgnesCyan.copy(alpha = 0.4f) else Color(0xFF262D3D)
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = skill.iconEmoji,
+                        fontSize = 24.sp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = skill.name,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            // Category Tag
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(AgnesVioletDark)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = skill.id,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = AgnesCyan
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Switch
+                Switch(
+                    checked = skill.isEnabled,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = AgnesCyan,
+                        uncheckedThumbColor = Color(0xFF7E8B9B),
+                        uncheckedTrackColor = Color(0xFF262D3D)
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Description
+            Text(
+                text = skill.description,
+                fontSize = 13.sp,
+                color = Color(0xFFC0CAD8),
+                lineHeight = 18.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Expandable details (Parameters & Triggers)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (expanded) "收起参数契约与触发词" else "查看参数规格 (${skill.parameters.size} 个入参)",
+                    fontSize = 12.sp,
+                    color = AgnesCyan
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = AgnesCyan,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .background(Color(0xFF0E131E), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = "参数契约 (Schema):",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    skill.parameters.forEach { p ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "• ${p.name} [${p.type}]",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = AgnesCyan,
+                                modifier = Modifier.width(130.dp)
+                            )
+                            Text(
+                                text = "${p.description}${if (p.required) " (必填)" else ""}",
+                                fontSize = 11.sp,
+                                color = Color(0xFFA6B4C8)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "自然语言触发词: ${skill.triggerKeywords.take(6).joinToString(", ")}...",
+                        fontSize = 11.sp,
+                        color = Color(0xFF7E8B9B)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Quick Use Button
+            OutlinedButton(
+                onClick = onUseTemplate,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, AgnesViolet)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = AgnesCyan,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "快速填入该技能指令",
+                    fontSize = 12.sp,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}

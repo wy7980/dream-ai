@@ -71,10 +71,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Extension
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
 import com.example.ui.components.MarkdownText
 import com.example.data.model.ChatIntentMode
+import com.example.ui.components.ActiveSkillExecutingBanner
+import com.example.ui.components.AgentLoadedSkillsBar
+import com.example.ui.components.AgentSkillManagerSheet
 import com.example.ui.components.ImagePickerBottomSheet
 import com.example.ui.components.RateLimitBanner
 import com.example.ui.theme.AgnesAmber
@@ -102,11 +106,14 @@ fun AgentChatScreen(
     val progressMessage by viewModel.progressMessage.collectAsState()
     val currentConfig by viewModel.config.collectAsState()
     val currentIntentMode by viewModel.chatIntentMode.collectAsState()
+    val skills by viewModel.skills.collectAsState()
+    val currentExecutingSkill by viewModel.currentExecutingSkill.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<String?>(null) }
     var showImagePicker by remember { mutableStateOf(false) }
     var showHistoryDrawer by remember { mutableStateOf(false) }
+    var showSkillManagerSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -188,22 +195,59 @@ fun AgentChatScreen(
                     )
                 }
 
-                // Top Right: New Chat / Clear Session Icon Only
-                IconButton(
-                    onClick = {
-                        viewModel.clearChat()
-                        viewModel.showToast("已开启新对话")
-                    },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "新建对话",
-                        tint = AgnesCyan,
-                        modifier = Modifier.size(24.dp)
-                    )
+                // Top Right: Skills Hub & New Chat
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { showSkillManagerSheet = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Icon(
+                                imageVector = Icons.Default.Extension,
+                                contentDescription = "智能体技能中心",
+                                tint = AgnesCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            val enabledCount = skills.count { it.isEnabled }
+                            if (enabledCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(AgnesEmerald, CircleShape)
+                                )
+                            }
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            viewModel.clearChat()
+                            viewModel.showToast("已开启新对话")
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "新建对话",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
+
+            // Real-time Active Skill Executing Banner
+            ActiveSkillExecutingBanner(
+                record = currentExecutingSkill
+            )
+
+            // Loaded Skills Bar
+            AgentLoadedSkillsBar(
+                skills = skills,
+                onOpenSkillHub = { showSkillManagerSheet = true },
+                onSkillClick = { _ -> showSkillManagerSheet = true },
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+            )
 
         // Mode Switcher Chips (Auto, Chat, Image, Video)
         Row(
@@ -682,6 +726,17 @@ fun AgentChatScreen(
             }
         )
     }
+
+    if (showSkillManagerSheet) {
+        AgentSkillManagerSheet(
+            skills = skills,
+            onToggleSkill = { id, enabled -> viewModel.toggleSkill(id, enabled) },
+            onUseSkillTemplate = { template ->
+                inputText = template
+            },
+            onDismiss = { showSkillManagerSheet = false }
+        )
+    }
 }
 
 @Composable
@@ -728,6 +783,33 @@ fun ChatMessageItem(
             modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.fillMaxWidth(0.92f)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
+                if (message.actionType == "SKILL_CALL") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFF1E1738))
+                            .border(1.dp, AgnesViolet, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Extension,
+                            contentDescription = null,
+                            tint = AgnesCyan,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "智能体技能调度 (Skill Invocation)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AgnesCyan
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 if (message.attachedImageUri != null) {
                     Box(
                         modifier = Modifier

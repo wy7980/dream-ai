@@ -42,6 +42,10 @@ class AgnesRepository(
         return database.projectDao().getProjectById(projectId)
     }
 
+    suspend fun getProjectDirect(projectId: String): GenerationProject? {
+        return database.projectDao().getProjectDirect(projectId)
+    }
+
     private fun loadConfig(): AgnesApiConfig {
         val rawEndpoint = prefs.getString("endpoint_url", "https://api.agnes-ai.cn/v1") ?: "https://api.agnes-ai.cn/v1"
         val endpoint = if (rawEndpoint.contains("api.agnes.ai") || rawEndpoint.isBlank()) {
