@@ -77,6 +77,7 @@ import com.example.data.model.ChatMessage
 import com.example.ui.components.MarkdownText
 import com.example.data.model.ChatIntentMode
 import com.example.ui.components.ActiveSkillExecutingBanner
+import com.example.ui.components.AgentDocumentCard
 import com.example.ui.components.AgentLoadedSkillsBar
 import com.example.ui.components.AgentSkillManagerSheet
 import com.example.ui.components.ImagePickerBottomSheet
@@ -126,6 +127,9 @@ fun AgentChatScreen(
     }
 
     val quickPrompts = listOf(
+        "📝 撰写一份AI智能体商业合作策划案并导出Word",
+        "📄 导出A4格式的智能影视制作技术白皮书PDF",
+        "📊 制作一份2026年Q4短片制作预算明细Excel表",
         "💬 帮我构思一个赛博朋克雨夜侦探的微电影故事剧本",
         "🎨 根据此图片重绘为电影级霓虹光影概念艺术图",
         "🎬 将此概念生成4幕连续电影视频并自动拼接成片",
@@ -313,6 +317,15 @@ fun AgentChatScreen(
                     onShareImage = {
                         val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
                         viewModel.shareMedia(imgUri, isVideo = false)
+                    },
+                    onOpenDocument = { uri, type ->
+                        viewModel.openDocument(uri, type)
+                    },
+                    onShareDocument = { uri, name, type ->
+                        viewModel.shareDocument(uri, name, type)
+                    },
+                    onSaveDocument = { uri, name, type ->
+                        viewModel.saveDocumentToDownloads(uri, name, type)
                     }
                 )
             }
@@ -746,7 +759,10 @@ fun ChatMessageItem(
     onOpenVideoStudio: () -> Unit,
     onOpenImageStudio: () -> Unit,
     onSaveImage: () -> Unit = {},
-    onShareImage: () -> Unit = {}
+    onShareImage: () -> Unit = {},
+    onOpenDocument: (uri: String?, type: String?) -> Unit = { _, _ -> },
+    onShareDocument: (uri: String?, name: String?, type: String?) -> Unit = { _, _, _ -> },
+    onSaveDocument: (uri: String?, name: String?, type: String?) -> Unit = { _, _, _ -> }
 ) {
     val isUser = message.sender == "user"
 
@@ -1000,6 +1016,20 @@ fun ChatMessageItem(
                             )
                         }
                     }
+                }
+
+                // Render Interactive Document Card (Word, PDF, Excel)
+                if (!message.documentUri.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    AgentDocumentCard(
+                        documentName = message.documentName ?: "已导出文档",
+                        documentType = message.documentType ?: "WORD",
+                        documentSize = message.documentSize,
+                        documentUri = message.documentUri,
+                        onOpenDocument = { onOpenDocument(message.documentUri, message.documentType) },
+                        onShareDocument = { onShareDocument(message.documentUri, message.documentName, message.documentType) },
+                        onSaveToDownloads = { onSaveDocument(message.documentUri, message.documentName, message.documentType) }
+                    )
                 }
             }
         }

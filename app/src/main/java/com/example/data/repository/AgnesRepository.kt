@@ -302,12 +302,24 @@ class AgnesRepository(
         return userMsg
     }
 
-    suspend fun saveAgentReply(replyText: String, relatedProjectId: String? = null, actionType: String? = null): ChatMessage {
+    suspend fun saveAgentReply(
+        replyText: String,
+        relatedProjectId: String? = null,
+        actionType: String? = null,
+        documentUri: String? = null,
+        documentType: String? = null,
+        documentName: String? = null,
+        documentSize: String? = null
+    ): ChatMessage {
         val agentMsg = ChatMessage(
             sender = "agnes_agent",
             content = replyText,
             relatedProjectId = relatedProjectId,
-            actionType = actionType
+            actionType = actionType,
+            documentUri = documentUri,
+            documentType = documentType,
+            documentName = documentName,
+            documentSize = documentSize
         )
         database.chatMessageDao().insertMessage(agentMsg)
         return agentMsg

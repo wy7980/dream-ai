@@ -31,6 +31,11 @@ data class SkillResult(
     val relatedProjectId: String? = null,
     val outputImageUrl: String? = null,
     val outputVideoUrl: String? = null,
+    val outputDocumentUri: String? = null,
+    val outputDocumentType: String? = null, // "WORD", "PDF", "EXCEL"
+    val outputDocumentName: String? = null,
+    val outputDocumentSize: String? = null,
+    val outputDocumentPath: String? = null,
     val intermediateSteps: List<String> = emptyList(),
     val error: String? = null
 )

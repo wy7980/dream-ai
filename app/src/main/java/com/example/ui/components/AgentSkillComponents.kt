@@ -36,11 +36,15 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -518,3 +522,237 @@ fun SkillDetailCard(
         }
     }
 }
+
+/**
+ * High-craft interactive Document Card rendered inside Chat Stream for Word, PDF and Excel results.
+ */
+@Composable
+fun AgentDocumentCard(
+    documentName: String,
+    documentType: String, // "WORD", "PDF", "EXCEL"
+    documentSize: String?,
+    documentUri: String,
+    onOpenDocument: () -> Unit,
+    onShareDocument: () -> Unit,
+    onSaveToDownloads: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val upperType = documentType.uppercase()
+
+    val (badgeBg, badgeBorder, badgeText, extLabel, typeIconEmoji) = when (upperType) {
+        "WORD" -> Quintuple(
+            Color(0xFF1E3A8A),
+            Color(0xFF3B82F6),
+            Color(0xFF93C5FD),
+            "DOCX",
+            "📝"
+        )
+        "PDF" -> Quintuple(
+            Color(0xFF7F1D1D),
+            Color(0xFFEF4444),
+            Color(0xFFFCA5A5),
+            "PDF",
+            "📄"
+        )
+        "EXCEL" -> Quintuple(
+            Color(0xFF064E3B),
+            Color(0xFF10B981),
+            Color(0xFF6EE7B7),
+            "XLSX",
+            "📊"
+        )
+        else -> Quintuple(
+            Color(0xFF1E293B),
+            Color(0xFF64748B),
+            Color(0xFFCBD5E1),
+            "DOC",
+            "📁"
+        )
+    }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF0C101A)
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, badgeBorder.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Document Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Type Icon Badge
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(badgeBg)
+                        .border(1.dp, badgeBorder, RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = extLabel,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = badgeText,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = typeIconEmoji,
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = documentName,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Tag: Formatted Size
+                        if (!documentSize.isNullOrBlank()) {
+                            Text(
+                                text = documentSize,
+                                fontSize = 10.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                            Text(text = "•", fontSize = 10.sp, color = Color(0xFF475569))
+                        }
+                        // Tag: Standard Sandbox Ready
+                        Text(
+                            text = "已生成编译完成",
+                            fontSize = 10.sp,
+                            color = AgnesCyan,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Action Buttons Row: Open, Share, Download
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Button 1: Open Document
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(badgeBg.copy(alpha = 0.8f))
+                        .border(1.dp, badgeBorder, RoundedCornerShape(8.dp))
+                        .clickable { onOpenDocument() }
+                        .padding(vertical = 7.dp, horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = "打开",
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "打开预览",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                // Button 2: Share Document
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF161E2E))
+                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp))
+                        .clickable { onShareDocument() }
+                        .padding(vertical = 7.dp, horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "分享",
+                            tint = AgnesCyan,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "分享发送",
+                            fontSize = 11.sp,
+                            color = AgnesCyan
+                        )
+                    }
+                }
+
+                // Button 3: Save to Downloads
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF161E2E))
+                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(8.dp))
+                        .clickable { onSaveToDownloads() }
+                        .padding(vertical = 7.dp, horizontal = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "保存",
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "存入系统",
+                            fontSize = 11.sp,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class Quintuple<A, B, C, D, E>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D,
+    val fifth: E
+)
+

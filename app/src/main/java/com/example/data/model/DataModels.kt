@@ -64,7 +64,11 @@ data class ChatMessage(
     val content: String,
     val attachedImageUri: String? = null,
     val relatedProjectId: String? = null,
-    val actionType: String? = null, // "IMAGE_RESULT", "VIDEO_SCRIPT", "QUEUE_STATUS"
+    val actionType: String? = null, // "IMAGE_RESULT", "VIDEO_SCRIPT", "DOCUMENT_RESULT", "QUEUE_STATUS"
+    val documentUri: String? = null,
+    val documentType: String? = null, // "WORD", "PDF", "EXCEL"
+    val documentName: String? = null,
+    val documentSize: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 

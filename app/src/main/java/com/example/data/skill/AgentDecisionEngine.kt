@@ -118,8 +118,65 @@ class AgentDecisionEngine(
         // 3. Heuristic Intent Pattern Recognition (Robust fallback for instant response or offline)
         val imageSkill = activeSkills.find { it.id == "image-generation" }
         val videoSkill = activeSkills.find { it.id == "video-generation" }
+        val wordSkill = activeSkills.find { it.id == "word-document" }
+        val pdfSkill = activeSkills.find { it.id == "pdf-document" }
+        val excelSkill = activeSkills.find { it.id == "excel-spreadsheet" }
         val promptSkill = activeSkills.find { it.id == "prompt-enhancer" }
         val directorSkill = activeSkills.find { it.id == "storyboard-director" }
+
+        // Excel table intent check
+        if (excelSkill != null && (
+                    lower.contains("excel") || lower.contains("表格") ||
+                    lower.contains("做个表") || lower.contains("预算表") ||
+                    lower.contains("统计表") || lower.contains("考勤表") ||
+                    lower.contains("销售表") || lower.contains("csv") ||
+                    lower.contains("xlsx") || lower.contains("甘特图") ||
+                    (lower.contains("数据") && lower.contains("表"))
+                )) {
+            return AgentDecision.InvokeSkill(
+                skill = excelSkill,
+                arguments = mapOf(
+                    "sheetTitle" to userPrompt,
+                    "dataScope" to "业务明细数据"
+                ),
+                preThoughtText = "🧠 [智能体思考] 检测到电子表格与数据统计需求，已调度 `[${excelSkill.name}]` 技能构建多维数据表并导出标准 Excel 文件。"
+            )
+        }
+
+        // PDF document intent check
+        if (pdfSkill != null && (
+                    lower.contains("pdf") || lower.contains("导出pdf") ||
+                    lower.contains("生成pdf") || lower.contains("转成pdf") ||
+                    lower.contains("打印文档")
+                )) {
+            return AgentDecision.InvokeSkill(
+                skill = pdfSkill,
+                arguments = mapOf(
+                    "title" to userPrompt,
+                    "content" to userPrompt
+                ),
+                preThoughtText = "🧠 [智能体思考] 检测到矢量文档编译与打印诉求，已调度 `[${pdfSkill.name}]` 技能排版并编译标准 A4 PDF 文档。"
+            )
+        }
+
+        // Word document intent check
+        if (wordSkill != null && (
+                    lower.contains("word") || lower.contains("doc") ||
+                    lower.contains("docx") || lower.contains("公文") ||
+                    lower.contains("合同") || lower.contains("协议") ||
+                    lower.contains("企划案") || lower.contains("策划案") ||
+                    lower.contains("会议纪要") || lower.contains("工作汇报") ||
+                    (lower.contains("写") && (lower.contains("报告") || lower.contains("方案")))
+                )) {
+            return AgentDecision.InvokeSkill(
+                skill = wordSkill,
+                arguments = mapOf(
+                    "topic" to userPrompt,
+                    "docType" to if (lower.contains("合同")) "商务合同" else if (lower.contains("企划")) "商业企划案" else "专业方案报告"
+                ),
+                preThoughtText = "🧠 [智能体思考] 检测到结构化文档撰写诉求，已调度 `[${wordSkill.name}]` 技能设计公文目录架构并生成 Word 文档。"
+            )
+        }
 
         // Video intent check
         if (videoSkill != null && (
@@ -195,7 +252,7 @@ class AgentDecisionEngine(
         // 4. Default: Conversational reply
         val fallbackReply = agnesClient.generateChatReply(config, chatHistory, userPrompt)
         return AgentDecision.DirectChatReply(
-            fallbackReply.getOrNull() ?: "你好！我是 Dream AI 智能体。我已装载了包括【AI 图像生成】、【AI 电影视频流水线】、【提示词润色】与【导演分镜规划】等多项专业技能。你可以告诉我你想创作什么，我将自主调度对应技能为你实现！"
+            fallbackReply.getOrNull() ?: "你好！我是 Dream AI 智能体。我已装载了包括【AI 图像生成】、【电影视频流水线】、【Word 文档排版】、【PDF 矢量编译】与【Excel 数据建模】等多项专业技能。你可以告诉我你的需求，我将自主调度对应技能为你实现！"
         )
     }
 
@@ -204,7 +261,9 @@ class AgentDecisionEngine(
         val lower = prompt.lowercase()
         return lower.contains("画") || lower.contains("生图") ||
                 lower.contains("视频") || lower.contains("短片") ||
-                lower.contains("润色") || lower.contains("分镜")
+                lower.contains("word") || lower.contains("pdf") ||
+                lower.contains("excel") || lower.contains("表格") ||
+                lower.contains("报告") || lower.contains("润色") || lower.contains("分镜")
     }
 
     private data class ParsedToolCall(val skillId: String, val arguments: Map<String, Any?>)

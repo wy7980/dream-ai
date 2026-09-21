@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
@@ -21,6 +22,10 @@ import com.example.data.skill.AgentSkillRegistry
 import com.example.data.skill.InvocationStatus
 import com.example.data.skill.SkillExecutionContext
 import com.example.data.skill.SkillInvocationRecord
+import com.example.util.DocumentExportHelper
+import com.example.util.DocumentType
+import com.example.util.GeneratedDocument
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -59,7 +64,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     val chatIntentMode: StateFlow<com.example.data.model.ChatIntentMode> = _chatIntentMode.asStateFlow()
 
     // Agent Skills System
-    val skillRegistry = AgentSkillRegistry(repository, agnesClient)
+    val skillRegistry = AgentSkillRegistry(application, repository, agnesClient)
     private val decisionEngine = AgentDecisionEngine(skillRegistry, agnesClient)
 
     val skills: StateFlow<List<AgentSkill>> = skillRegistry.skills
@@ -348,14 +353,21 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                 "\n\n**工序节点**:\n" + result.intermediateSteps.joinToString("\n") { "✓ $it" }
             } else ""
 
+            val actionType = when {
+                skill.id == "image-generation" -> "IMAGE_RESULT"
+                skill.id == "video-generation" -> "VIDEO_SCRIPT"
+                result.outputDocumentUri != null -> "DOCUMENT_RESULT"
+                else -> "SKILL_COMPLETED"
+            }
+
             repository.saveAgentReply(
                 replyText = "${result.outputMessage}$stepsFormatted",
                 relatedProjectId = result.relatedProjectId,
-                actionType = when (skill.id) {
-                    "image-generation" -> "IMAGE_RESULT"
-                    "video-generation" -> "VIDEO_SCRIPT"
-                    else -> "SKILL_COMPLETED"
-                }
+                actionType = actionType,
+                documentUri = result.outputDocumentUri,
+                documentType = result.outputDocumentType,
+                documentName = result.outputDocumentName,
+                documentSize = result.outputDocumentSize
             )
         } else {
             _currentExecutingSkill.value = _currentExecutingSkill.value?.copy(
@@ -367,6 +379,93 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                 replyText = "⚠️ 技能 `[${skill.name}]` 执行未完成: ${result.error ?: "未知错误"}",
                 actionType = "SKILL_FAILED"
             )
+        }
+    }
+
+    fun openDocument(uriString: String?, docType: String?) {
+        if (uriString.isNullOrBlank()) {
+            _toastMessage.value = "未找到有效的文档路径"
+            return
+        }
+        val mimeType = when (docType?.uppercase()) {
+            "WORD" -> "application/msword"
+            "PDF" -> "application/pdf"
+            "EXCEL" -> "text/csv"
+            else -> "*/*"
+        }
+        val opened = DocumentExportHelper.openDocument(
+            context = getApplication(),
+            docUri = Uri.parse(uriString),
+            mimeType = mimeType
+        )
+        if (!opened) {
+            _toastMessage.value = "未检测到可直接打开该格式的应用，建议安装 WPS 或 Office"
+        }
+    }
+
+    fun shareDocument(uriString: String?, docName: String?, docType: String?) {
+        if (uriString.isNullOrBlank()) {
+            _toastMessage.value = "未找到可分享的文档"
+            return
+        }
+        val mimeType = when (docType?.uppercase()) {
+            "WORD" -> "application/msword"
+            "PDF" -> "application/pdf"
+            "EXCEL" -> "text/csv"
+            else -> "*/*"
+        }
+        DocumentExportHelper.shareDocument(
+            context = getApplication(),
+            docUri = Uri.parse(uriString),
+            mimeType = mimeType,
+            title = docName ?: "导出文档"
+        )
+    }
+
+    fun saveDocumentToDownloads(docUriString: String?, docName: String?, docType: String?) {
+        if (docUriString.isNullOrBlank()) {
+            _toastMessage.value = "未找到文档"
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val dir = File(getApplication<Application>().filesDir, "generated_docs")
+                val fileName = docName ?: "document"
+                val file = File(dir, fileName)
+                if (file.exists()) {
+                    val mimeType = when (docType?.uppercase()) {
+                        "WORD" -> "application/msword"
+                        "PDF" -> "application/pdf"
+                        "EXCEL" -> "text/csv"
+                        else -> "application/octet-stream"
+                    }
+                    val doc = GeneratedDocument(
+                        file = file,
+                        uri = Uri.parse(docUriString),
+                        title = docName ?: "文档",
+                        fileName = fileName,
+                        fileSizeBytes = file.length(),
+                        formattedSize = DocumentExportHelper.formatFileSize(file.length()),
+                        mimeType = mimeType,
+                        docType = when (docType?.uppercase()) {
+                            "WORD" -> DocumentType.WORD
+                            "PDF" -> DocumentType.PDF
+                            "EXCEL" -> DocumentType.EXCEL
+                            else -> DocumentType.WORD
+                        }
+                    )
+                    val res = DocumentExportHelper.saveToDownloads(getApplication(), doc)
+                    if (res.isSuccess) {
+                        _toastMessage.value = "已将 ${doc.fileName} 保存到系统 Downloads/DreamAI 目录"
+                    } else {
+                        _toastMessage.value = "保存失败: ${res.exceptionOrNull()?.message}"
+                    }
+                } else {
+                    _toastMessage.value = "本地暂存文件未找到"
+                }
+            } catch (e: Exception) {
+                _toastMessage.value = "保存失败: ${e.message}"
+            }
         }
     }
 

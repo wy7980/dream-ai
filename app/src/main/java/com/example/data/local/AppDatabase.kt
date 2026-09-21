@@ -90,7 +90,7 @@ interface ChatMessageDao {
 
 @Database(
     entities = [GenerationProject::class, SceneClip::class, ChatMessage::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
