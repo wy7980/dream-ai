@@ -108,6 +108,7 @@ class AgnesRepository(
 
         return AgnesApiConfig(
             apiKey = prefs.getString("api_key", "") ?: "",
+            tavilyApiKey = prefs.getString("tavily_api_key", "") ?: "",
             endpointUrl = endpoint,
             chatModelName = chatModel,
             modelName = imageModel,
@@ -143,6 +144,7 @@ class AgnesRepository(
 
         prefs.edit()
             .putString("api_key", config.apiKey.trim())
+            .putString("tavily_api_key", config.tavilyApiKey.trim())
             .putString("endpoint_url", config.endpointUrl.trim())
             .putString("chat_model_name", config.chatModelName.trim())
             .putString("model_name", config.modelName.trim())

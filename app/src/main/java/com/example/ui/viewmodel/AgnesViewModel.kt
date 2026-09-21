@@ -617,6 +617,31 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateTavilyApiKey(key: String) {
+        val current = config.value
+        updateConfig(current.copy(tavilyApiKey = key.trim()))
+        _toastMessage.value = "已更新 Tavily API Key 配置"
+    }
+
+    fun testTavilyConnection(key: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _isGenerating.value = true
+            _progressMessage.value = "正在验证 Tavily API 密钥与检索通道..."
+            val result = agnesClient.testTavilyConnection(key.trim())
+            _isGenerating.value = false
+            _progressMessage.value = ""
+            if (result.isSuccess) {
+                val msg = result.getOrThrow()
+                _toastMessage.value = msg
+                onResult(true, msg)
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Tavily 连通测试失败"
+                _toastMessage.value = "❌ 测试失败: $err"
+                onResult(false, err)
+            }
+        }
+    }
+
     fun shareMedia(uriOrPath: String?, isVideo: Boolean = false) {
         com.example.util.MediaExportHelper.shareMedia(
             context = getApplication(),

@@ -382,8 +382,9 @@ class AgentSkillRegistry(
     val skills: StateFlow<List<AgentSkill>> = _skills.asStateFlow()
 
     init {
-        // Register default built-in skills (Creation, Video, Office Documents, Planning)
+        // Register default built-in skills (Creation, Video, Search, Office Documents, Planning)
         _skills.value = listOf(
+            TavilySearchSkill(agnesClient),
             ImageGenerationSkill(repository),
             VideoGenerationSkill(repository),
             WordDocumentSkill(context, agnesClient),
@@ -439,14 +440,15 @@ class AgentSkillRegistry(
         }
         sb.appendLine("""
             【技能调用准则】:
-            1. 当用户要求画图、生图、重绘变奏、或附带参考图时，必须调用 `image-generation`。
-            2. 当用户要求生成视频、短片、多幕分镜视频并拼接时，必须调用 `video-generation`。
-            3. 当用户要求写方案/报告/合同/公文/总结并导出 Word 文档时，必须调用 `word-document`。
-            4. 当用户要求生成、导出或打印 A4 矢量 PDF 文档时，必须调用 `pdf-document`。
-            5. 当用户要求制作数据表、预算核算、甘特图、考勤统计并导出 Excel/CSV 时，必须调用 `excel-spreadsheet`。
-            6. 当用户要求润色、优化提示词时，调用 `prompt-enhancer`。
-            7. 当用户要求写剧本、规划影视分镜表时，调用 `storyboard-director`。
-            8. 如果仅为普通的问答、闲聊或理论解释，无需调用技能，直接回答即可。
+            1. 当用户需要联网检索实时信息、查询最新新闻、实时股票/币价行情、事实核查或搜索网页资料时，必须调用 `tavily_search`。
+            2. 当用户要求画图、生图、重绘变奏、或附带参考图时，必须调用 `image-generation`。
+            3. 当用户要求生成视频、短片、多幕分镜视频并拼接时，必须调用 `video-generation`。
+            4. 当用户要求写方案/报告/合同/公文/总结并导出 Word 文档时，必须调用 `word-document`。
+            5. 当用户要求生成、导出或打印 A4 矢量 PDF 文档时，必须调用 `pdf-document`。
+            6. 当用户要求制作数据表、预算核算、甘特图、考勤统计并导出 Excel/CSV 时，必须调用 `excel-spreadsheet`。
+            7. 当用户要求润色、优化提示词时，调用 `prompt-enhancer`。
+            8. 当用户要求写剧本、规划影视分镜表时，调用 `storyboard-director`。
+            9. 如果仅为普通的问答、闲聊或理论解释，无需调用技能，直接回答即可。
             
             若你判断需要调用技能，可以在回复中按以下格式进行工具调用：
             ```json

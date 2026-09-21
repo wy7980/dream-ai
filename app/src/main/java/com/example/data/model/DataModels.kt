@@ -92,6 +92,7 @@ data class AIProvider(
 
 data class AgnesApiConfig(
     val apiKey: String = "",
+    val tavilyApiKey: String = "",
     val endpointUrl: String = "https://api.agnes-ai.cn/v1",
     val chatModelName: String = "gpt-4o",
     val modelName: String = "flux-1-dev", // Image Generation / Remix Model
@@ -141,6 +142,21 @@ data class AgnesApiConfig(
     val autoStitchVideos: Boolean = true,
     val isDarkTheme: Boolean = true,
     val customAuthHeader: String = "Bearer"
+)
+
+data class TavilySearchResultItem(
+    val title: String,
+    val url: String,
+    val content: String,
+    val score: Double = 0.0,
+    val publishedDate: String? = null
+)
+
+data class TavilySearchResponse(
+    val query: String,
+    val answer: String? = null,
+    val results: List<TavilySearchResultItem> = emptyList(),
+    val rawJson: String? = null
 )
 
 data class RateLimitState(

@@ -19,6 +19,8 @@ import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
 import com.example.data.model.SceneClip
+import com.example.data.model.TavilySearchResponse
+import com.example.data.model.TavilySearchResultItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -1042,6 +1044,109 @@ class AgnesClient(
                 narration = "第${i + 1}幕：${template.third}，故事在「$theme」中徐徐展开。",
                 durationSeconds = 10
             )
+        }
+    }
+
+    /**
+     * Executes real-time web search via Tavily API.
+     */
+    suspend fun performTavilySearch(
+        apiKey: String,
+        query: String,
+        searchDepth: String = "basic",
+        maxResults: Int = 5,
+        includeAnswer: Boolean = true,
+        timeRange: String? = null
+    ): Result<TavilySearchResponse> = withContext(Dispatchers.IO) {
+        try {
+            if (apiKey.isBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("Tavily API Key 未配置，请在设置中填入 Tavily 密钥 (tvly-...)")
+                )
+            }
+
+            val jsonBody = JSONObject().apply {
+                put("api_key", apiKey.trim())
+                put("query", query.trim())
+                put("search_depth", if (searchDepth == "advanced") "advanced" else "basic")
+                put("include_answer", includeAnswer)
+                put("max_results", maxResults.coerceIn(1, 10))
+                if (!timeRange.isNullOrBlank()) {
+                    put("time_range", timeRange)
+                }
+            }
+
+            val request = Request.Builder()
+                .url("https://api.tavily.com/search")
+                .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer ${apiKey.trim()}")
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                val errorMsg = try {
+                    val errJson = JSONObject(responseBody)
+                    errJson.optString("detail", errJson.optString("error", "HTTP ${response.code}"))
+                } catch (e: Exception) {
+                    "HTTP ${response.code} - $responseBody"
+                }
+                return@withContext Result.failure(Exception("Tavily 搜索请求失败: $errorMsg"))
+            }
+
+            val root = JSONObject(responseBody)
+            val returnedQuery = root.optString("query", query)
+            val answer = if (root.has("answer") && !root.isNull("answer")) {
+                root.optString("answer").takeIf { it.isNotBlank() }
+            } else null
+
+            val resultsArray = root.optJSONArray("results") ?: JSONArray()
+            val resultsList = mutableListOf<TavilySearchResultItem>()
+
+            for (i in 0 until resultsArray.length()) {
+                val item = resultsArray.getJSONObject(i)
+                resultsList.add(
+                    TavilySearchResultItem(
+                        title = item.optString("title", "网页来源"),
+                        url = item.optString("url", ""),
+                        content = item.optString("content", ""),
+                        score = item.optDouble("score", 0.0),
+                        publishedDate = item.optString("published_date").takeIf { it.isNotBlank() }
+                    )
+                )
+            }
+
+            Result.success(
+                TavilySearchResponse(
+                    query = returnedQuery,
+                    answer = answer,
+                    results = resultsList,
+                    rawJson = responseBody
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Tests connectivity to Tavily API.
+     */
+    suspend fun testTavilyConnection(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
+        val testRes = performTavilySearch(
+            apiKey = apiKey,
+            query = "AI technology latest news",
+            searchDepth = "basic",
+            maxResults = 1,
+            includeAnswer = false
+        )
+        if (testRes.isSuccess) {
+            val count = testRes.getOrNull()?.results?.size ?: 0
+            Result.success("✅ Tavily API 连通性测试成功！密钥有效，成功检索到 $count 条实时网页数据。")
+        } else {
+            Result.failure(testRes.exceptionOrNull() ?: Exception("Tavily 连通性测试失败"))
         }
     }
 }

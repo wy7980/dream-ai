@@ -100,7 +100,10 @@ class AgentDecisionEngine(
             // Check if response contains a tool call JSON
             val toolCall = extractToolCall(responseText)
             if (toolCall != null) {
-                val skill = activeSkills.find { it.id == toolCall.skillId }
+                val skill = activeSkills.find { 
+                    it.id == toolCall.skillId ||
+                    (toolCall.skillId in listOf("tavily_search", "tavily-search", "web_search", "search") && it.id == "tavily_search")
+                }
                 if (skill != null) {
                     val cleanText = responseText.replace(Regex("```json[\\s\\S]*?```"), "").trim()
                     return AgentDecision.InvokeSkill(
@@ -116,6 +119,7 @@ class AgentDecisionEngine(
         }
 
         // 3. Heuristic Intent Pattern Recognition (Robust fallback for instant response or offline)
+        val tavilySkill = activeSkills.find { it.id == "tavily_search" }
         val imageSkill = activeSkills.find { it.id == "image-generation" }
         val videoSkill = activeSkills.find { it.id == "video-generation" }
         val wordSkill = activeSkills.find { it.id == "word-document" }
@@ -123,6 +127,34 @@ class AgentDecisionEngine(
         val excelSkill = activeSkills.find { it.id == "excel-spreadsheet" }
         val promptSkill = activeSkills.find { it.id == "prompt-enhancer" }
         val directorSkill = activeSkills.find { it.id == "storyboard-director" }
+
+        // Tavily search intent check
+        if (tavilySkill != null && (
+                    lower.contains("搜索") || lower.contains("搜一下") ||
+                    lower.contains("搜一搜") || lower.contains("查一下") ||
+                    lower.contains("查查") || lower.contains("查一查") ||
+                    lower.contains("联网") || lower.contains("实时") ||
+                    lower.contains("最新消息") || lower.contains("最新进展") ||
+                    lower.contains("最新新闻") || lower.contains("行情") ||
+                    lower.contains("tavily") || lower.contains("search") ||
+                    lower.contains("web search") || lower.contains("查找资料") ||
+                    (lower.contains("最新") && (lower.contains("动态") || lower.contains("消息") || lower.contains("价格")))
+                )) {
+            val cleanQuery = userPrompt
+                .replace(Regex("^(帮我|请|麻烦|去)?(搜索|搜一下|搜一搜|查一下|查查|查一查|联网搜索|实时查询|检索)"), "")
+                .trim()
+                .ifBlank { userPrompt }
+            return AgentDecision.InvokeSkill(
+                skill = tavilySkill,
+                arguments = mapOf(
+                    "query" to cleanQuery,
+                    "search_depth" to if (lower.contains("深度") || lower.contains("详细") || lower.contains("调研")) "advanced" else "basic",
+                    "max_results" to 5,
+                    "include_answer" to true
+                ),
+                preThoughtText = "🧠 [智能体思考] 检测到实时联网与网页检索需求，已调度 `[${tavilySkill.name}]` 技能接入 Tavily AI 全网引擎获取最新事实与权威引用。"
+            )
+        }
 
         // Excel table intent check
         if (excelSkill != null && (
@@ -259,7 +291,10 @@ class AgentDecisionEngine(
     private fun isHeuristicMatch(prompt: String, attachedImageUri: String?): Boolean {
         if (attachedImageUri != null) return true
         val lower = prompt.lowercase()
-        return lower.contains("画") || lower.contains("生图") ||
+        return lower.contains("搜索") || lower.contains("搜一下") ||
+                lower.contains("查一下") || lower.contains("联网") ||
+                lower.contains("tavily") || lower.contains("search") ||
+                lower.contains("画") || lower.contains("生图") ||
                 lower.contains("视频") || lower.contains("短片") ||
                 lower.contains("word") || lower.contains("pdf") ||
                 lower.contains("excel") || lower.contains("表格") ||

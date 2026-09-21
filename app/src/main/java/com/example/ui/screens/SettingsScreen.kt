@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
@@ -109,6 +110,7 @@ sealed class SettingsSubPage {
     object Main : SettingsSubPage()
     object Providers : SettingsSubPage()
     object ModelMapping : SettingsSubPage()
+    object TavilySearch : SettingsSubPage()
     object RateLimitAndGeneration : SettingsSubPage()
     object Appearance : SettingsSubPage()
 }
@@ -172,6 +174,13 @@ fun SettingsScreen(
                         config = currentConfig,
                         availableModels = availableModels,
                         isFetchingModels = isFetchingModels,
+                        onBack = { currentPage = SettingsSubPage.Main }
+                    )
+                }
+                is SettingsSubPage.TavilySearch -> {
+                    TavilySearchSubPage(
+                        viewModel = viewModel,
+                        config = currentConfig,
                         onBack = { currentPage = SettingsSubPage.Main }
                     )
                 }
@@ -308,6 +317,13 @@ fun SettingsMainView(
                     modelName = config.videoModelName,
                     color = AgnesCyan
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                ConfigOverviewItem(
+                    label = "🌐 联网搜索",
+                    providerName = "Tavily Search AI",
+                    modelName = if (config.tavilyApiKey.isNotBlank()) "已授权 (实时全网)" else "未配置密钥",
+                    color = if (config.tavilyApiKey.isNotBlank()) AgnesEmerald else AgnesAmber
+                )
             }
         }
 
@@ -352,7 +368,22 @@ fun SettingsMainView(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Item 3: 限速与流水线控制
+        // Item 3: Tavily 实时联网搜索配置
+        SettingsNavigationCard(
+            icon = Icons.Default.Search,
+            iconTint = AgnesEmerald,
+            iconBg = AgnesEmerald.copy(alpha = 0.15f),
+            title = "🌐 Tavily 实时联网搜索技能配置",
+            subtitle = "配置 Tavily API Key (tvly-...)，赋予智能体实时互联网检索与事实查证能力",
+            badge = if (config.tavilyApiKey.isNotBlank()) "已启用" else "未配置Key",
+            badgeColor = if (config.tavilyApiKey.isNotBlank()) AgnesEmerald else AgnesAmber,
+            testTag = "nav_tavily_search_button",
+            onClick = { onNavigate(SettingsSubPage.TavilySearch) }
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Item 4: 限速与流水线控制
         SettingsNavigationCard(
             icon = Icons.Default.Speed,
             iconTint = AgnesAmber,
@@ -367,7 +398,7 @@ fun SettingsMainView(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Item 4: 外观与主题
+        // Item 5: 外观与主题
         SettingsNavigationCard(
             icon = if (config.isDarkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
             iconTint = if (config.isDarkTheme) AgnesVioletLight else AgnesAmber,
@@ -1680,5 +1711,336 @@ fun ModelInputFieldWithSuggestions(
                 }
             }
         }
+    }
+}
+
+/**
+ * Tavily 实时联网搜索配置页
+ */
+@Composable
+fun TavilySearchSubPage(
+    viewModel: AgnesViewModel,
+    config: AgnesApiConfig,
+    onBack: () -> Unit
+) {
+    var apiKey by remember(config.tavilyApiKey) { mutableStateOf(config.tavilyApiKey) }
+    var isKeyVisible by remember { mutableStateOf(false) }
+    var testStatusMessage by remember { mutableStateOf<String?>(null) }
+    var isTesting by remember { mutableStateOf(false) }
+    var isTestSuccess by remember { mutableStateOf(false) }
+    var hasSaved by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(AppSubtleBg, RoundedCornerShape(8.dp))
+                    .testTag("tavily_search_back_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    tint = AppTextPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = "🌐 Tavily 实时联网搜索配置",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = "配置 Tavily AI 全网搜索引擎密钥，赋予智能体实时检索能力",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Status Card
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(
+                    1.dp,
+                    if (apiKey.isNotBlank()) AgnesEmerald.copy(alpha = 0.5f) else AgnesAmber.copy(alpha = 0.5f),
+                    RoundedCornerShape(12.dp)
+                ),
+            color = AppCardBg
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(
+                            if (apiKey.isNotBlank()) AgnesEmerald.copy(alpha = 0.2f) else AgnesAmber.copy(alpha = 0.2f),
+                            RoundedCornerShape(10.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (apiKey.isNotBlank()) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = if (apiKey.isNotBlank()) AgnesEmerald else AgnesAmber,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (apiKey.isNotBlank()) "Tavily 搜索已就绪" else "尚未配置 Tavily 密钥",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppTextPrimary
+                    )
+                    Text(
+                        text = if (apiKey.isNotBlank()) "智能体在对话中收到搜索指令时将自动调度 Tavily 进行全网深度检索" else "智能体暂时无法联网检索最新事实，请在下方填入你的 API Key",
+                        fontSize = 10.sp,
+                        color = AppTextSecondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Key Input Card
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, AppCardBorder, RoundedCornerShape(12.dp)),
+            color = AppCardBg
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "🔑 Tavily API Key",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppTextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "支持从 tavily.com 申请的 tvly-... 格式私有访问凭证",
+                    fontSize = 10.sp,
+                    color = AppTextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { 
+                        apiKey = it
+                        hasSaved = false
+                        testStatusMessage = null
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("tavily_api_key_input"),
+                    placeholder = { Text("tvly-xxxxxxxxxxxxxxxxxxxx", fontSize = 11.sp, color = AppTextSecondary.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                            Icon(
+                                imageVector = if (isKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isKeyVisible) "隐藏密钥" else "显示密钥",
+                                tint = AppTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AgnesEmerald,
+                        unfocusedBorderColor = AppCardBorder,
+                        focusedContainerColor = AppInputBg,
+                        unfocusedContainerColor = AppInputBg,
+                        focusedTextColor = AppTextPrimary,
+                        unfocusedTextColor = AppTextPrimary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Action Buttons Row: Test Connection & Save
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (apiKey.isBlank()) {
+                                testStatusMessage = "请先输入 Tavily API Key 再进行连通性测试"
+                                isTestSuccess = false
+                                return@OutlinedButton
+                            }
+                            isTesting = true
+                            testStatusMessage = null
+                            viewModel.testTavilyConnection(apiKey) { success, msg ->
+                                isTesting = false
+                                isTestSuccess = success
+                                testStatusMessage = msg
+                            }
+                        },
+                        enabled = !isTesting,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("test_tavily_connection_button"),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = AgnesEmerald
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AgnesEmerald.copy(alpha = 0.6f))
+                    ) {
+                        if (isTesting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = AgnesEmerald,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("正在测试...", fontSize = 11.sp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = AgnesEmerald
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("测试连通性", fontSize = 11.sp, color = AgnesEmerald)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.updateTavilyApiKey(apiKey)
+                            hasSaved = true
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("save_tavily_key_button"),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AgnesEmerald
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (hasSaved) Icons.Default.Check else Icons.Default.Save,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (hasSaved) "已保存" else "保存配置",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                // Test Feedback Card
+                if (testStatusMessage != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(
+                                1.dp,
+                                if (isTestSuccess) AgnesEmerald.copy(alpha = 0.5f) else AgnesRose.copy(alpha = 0.5f),
+                                RoundedCornerShape(8.dp)
+                            ),
+                        color = if (isTestSuccess) AgnesEmerald.copy(alpha = 0.1f) else AgnesRose.copy(alpha = 0.1f)
+                    ) {
+                        Text(
+                            text = testStatusMessage ?: "",
+                            fontSize = 10.sp,
+                            color = if (isTestSuccess) AgnesEmerald else AgnesRose,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Guidelines & Free Tier Guide Card
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, AppCardBorder, RoundedCornerShape(12.dp)),
+            color = AppCardBg
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "📖 什么是 Tavily AI 搜索引擎？",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppTextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Tavily 是专门为 AI 智能体与 LLM 设计的高性能实时网络搜索引擎。不同于普通搜索，它能直接清洗噪音网页，提取权威正文、关联评分与智能摘要，让智能体回答准确、事实可溯源。",
+                    fontSize = 10.sp,
+                    color = AppTextSecondary,
+                    lineHeight = 15.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AgnesViolet.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                        .border(0.5.dp, AgnesViolet.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "🎁 免费额度与获取方式",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AgnesVioletLight
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "1. 打开浏览器访问 https://tavily.com 并注册账号；\n2. 在 Dashboard 中复制你的 API Key；\n3. 官方每月提供 1,000 次免费实时搜索调用配额，足够日常智能体调研使用。",
+                            fontSize = 10.sp,
+                            color = AppTextPrimary,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
