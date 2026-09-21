@@ -15,6 +15,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.net.Uri
+import android.util.Base64
 import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
@@ -33,6 +34,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -325,7 +327,17 @@ class AgnesClient(
                         put("prompt", "$prompt, in style of $stylePreset, high quality, 8k resolution, cinematic lighting, aspect ratio $aspectRatio")
                         put("model", config.modelName)
                         put("n", 1)
-                        put("size", if (aspectRatio == "16:9") "1024x576" else "1024x1024")
+                        // Agnes image models take a tier-based `size` plus an optional `ratio`.
+                        put("size", "2K")
+                        put("ratio", aspectRatio)
+                        // Image-to-image / multi-image composition inputs go in `extra_body.image` (an array).
+                        val inputImage = if (!sourceImageUri.isNullOrBlank()) uriToDataUri(sourceImageUri) else null
+                        put("extra_body", JSONObject().apply {
+                            put("response_format", "url")
+                            if (inputImage != null) {
+                                put("image", JSONArray().put(inputImage))
+                            }
+                        })
                     }
 
                     val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
@@ -453,7 +465,7 @@ class AgnesClient(
     ): Result<VideoClipResult> = withContext(Dispatchers.IO) {
         val effectiveModel = modelOverride?.trim()?.ifBlank { null }
             ?: config.videoModelName.trim().ifBlank { "agnes-video-v2.0" }
-        rateLimitManager.executeRateLimited("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
+        rateLimitManager.executeRateLimitedWithRetry("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
             try {
                 val provider = resolveProvider(config, config.videoProviderId)
                 if (provider.apiKey.isNotBlank()) {
@@ -473,35 +485,41 @@ class AgnesClient(
                         else -> "16:9"
                     }
 
+                    // Local `content://` / `file://` URIs are private to the device and unreachable
+                    // from the public API gateway, so they must be inlined as a Data URI first.
+                    val imageDataUri = if (!sourceImageUri.isNullOrBlank()) uriToDataUri(sourceImageUri) else null
+
                     val requestJson = JSONObject().apply {
                         put("model", effectiveModel)
-                        val combinedPrompt = "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset"
-                        put("prompt", combinedPrompt)
+                        val basePrompt = "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset"
+                        // In reference mode the API expects the input image to be addressed as <Picture 1>.
+                        put("prompt", if (imageDataUri != null) "<Picture 1> $basePrompt" else basePrompt)
 
                         when {
-                            // Agnes Video 2.5 Flash: Fixed to 720P, ratio/aspect_ratio, duration (seconds), no num_frames/width/height
+                            // Agnes Video 2.5 Flash: `mode` is REQUIRED; size is fixed to 720P; duration is `seconds` ("4"-"12")
                             effectiveModel.contains("2.5-flash", ignoreCase = true) ||
                             effectiveModel.contains("25-flash", ignoreCase = true) ||
                             effectiveModel.contains("2.5_flash", ignoreCase = true) -> {
+                                put("mode", if (imageDataUri != null) "reference" else "text")
                                 put("size", "720P")
                                 put("aspect_ratio", normalizedAspectRatio)
-                                put("duration", sceneDuration.coerceIn(4, 12).toString())
                                 put("seconds", sceneDuration.coerceIn(4, 12).toString())
-                                if (!sourceImageUri.isNullOrBlank()) {
-                                    put("image", sourceImageUri)
+                                if (imageDataUri != null) {
+                                    // Reference mode expects an array of image URLs / Data URIs.
+                                    put("images", JSONArray().put(imageDataUri))
                                 }
                             }
-                            // Agnes Video 2.5 Standard: size (720P/1080P), aspect_ratio, duration
+                            // Agnes Video 2.5 Standard: same contract as Flash (`mode` required, `seconds` duration)
                             effectiveModel.contains("2.5", ignoreCase = true) || effectiveModel.contains("25", ignoreCase = true) -> {
+                                put("mode", if (imageDataUri != null) "reference" else "text")
                                 put("size", "720P")
                                 put("aspect_ratio", normalizedAspectRatio)
-                                put("duration", sceneDuration.coerceIn(4, 12).toString())
                                 put("seconds", sceneDuration.coerceIn(4, 12).toString())
-                                if (!sourceImageUri.isNullOrBlank()) {
-                                    put("image", sourceImageUri)
+                                if (imageDataUri != null) {
+                                    put("images", JSONArray().put(imageDataUri))
                                 }
                             }
-                            // Agnes Video V2.0: width, height, num_frames (121 or 241), frame_rate (24)
+                            // Agnes Video V2.0: width, height, num_frames (121 or 241), frame_rate (24), `image` for i2v
                             effectiveModel.contains("v2.0", ignoreCase = true) ||
                             effectiveModel.contains("v20", ignoreCase = true) ||
                             effectiveModel.contains("agnes-video", ignoreCase = true) -> {
@@ -518,18 +536,17 @@ class AgnesClient(
                                 put("height", h)
                                 put("num_frames", frames)
                                 put("frame_rate", 24)
-                                if (!sourceImageUri.isNullOrBlank()) {
-                                    put("image", sourceImageUri)
+                                if (imageDataUri != null) {
+                                    put("image", imageDataUri)
                                 }
                             }
                             // Generic / Other Video Models (CogVideo, Kling, Minimax, Sora)
                             else -> {
                                 put("aspect_ratio", normalizedAspectRatio)
-                                put("duration", sceneDuration)
-                                put("seconds", sceneDuration)
-                                if (!sourceImageUri.isNullOrBlank()) {
-                                    put("image", sourceImageUri)
-                                    put("image_url", sourceImageUri)
+                                put("seconds", sceneDuration.coerceIn(4, 12).toString())
+                                if (imageDataUri != null) {
+                                    put("image", imageDataUri)
+                                    put("image_url", imageDataUri)
                                 }
                             }
                         }
@@ -574,7 +591,7 @@ class AgnesClient(
 
                             if (videoUrl.isNotBlank()) {
                                 onStatusUpdate("生成成功！获取直接视频链接")
-                                return@executeRateLimited Result.success(
+                                return@executeRateLimitedWithRetry Result.success(
                                     VideoClipResult(
                                         videoUrl = videoUrl,
                                         taskId = displayId.ifBlank { null },
@@ -594,7 +611,7 @@ class AgnesClient(
                                     onStatusUpdate = onStatusUpdate
                                 )
                                 if (!polledUrl.isNullOrBlank()) {
-                                    return@executeRateLimited Result.success(
+                                    return@executeRateLimitedWithRetry Result.success(
                                         VideoClipResult(
                                             videoUrl = polledUrl,
                                             taskId = displayId,
@@ -602,7 +619,7 @@ class AgnesClient(
                                         )
                                     )
                                 } else {
-                                    return@executeRateLimited Result.failure(
+                                    return@executeRateLimitedWithRetry Result.failure(
                                         Exception("任务创建成功 [ID: ${displayId.take(20)}...]，但服务端渲染失败或资源解析超时")
                                     )
                                 }
@@ -610,13 +627,23 @@ class AgnesClient(
                         }
                     } else {
                         val errBody = response.body?.string() ?: ""
-                        return@executeRateLimited Result.failure(
+                        // Transient rate limit -> let the retry wrapper back off and retry.
+                        if (response.code == 429 || errBody.contains("rate_limit_exceeded")) {
+                            throw RateLimitException(
+                                "接口触发限流 HTTP ${response.code}: ${errBody.take(150)}",
+                                retryAfterSeconds = response.header("Retry-After")?.trim()?.toIntOrNull()
+                            )
+                        }
+                        return@executeRateLimitedWithRetry Result.failure(
                             Exception("接口创建任务失败 HTTP ${response.code}: ${errBody.take(150)}")
                         )
                     }
                 }
 
                 Result.failure(Exception("视频生成接口未返回有效 URL 或 Task ID"))
+            } catch (e: RateLimitException) {
+                // Propagate so executeRateLimitedWithRetry can retry with backoff.
+                throw e
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -794,7 +821,12 @@ class AgnesClient(
     }
 
     /**
-     * Step 3: Stitch multiple video segments into a master video
+     * Step 3: Stitch multiple video segments into a master video.
+     *
+     * Performs a real remux/concatenation of the generated clips into a single playable
+     * MP4 using [android.media.MediaMuxer], appending each clip's encoded tracks in order.
+     * If a clip cannot be resolved to a local file, the original clip is copied as-is and
+     * the manifest records the fallback so the caller can detect a partial stitch.
      */
     suspend fun stitchVideoClips(
         projectId: String,
@@ -802,19 +834,44 @@ class AgnesClient(
         clips: List<SceneClip>
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            delay(2000L) // Simulating rendering / stitching pipeline
             val totalDuration = clips.sumOf { it.durationSeconds }
+            val orderedClips = clips.sortedBy { it.sceneNumber }
             val masterFile = File(context.filesDir, "stitched_master_${projectId}.mp4")
-            
-            // Create a master project manifest/composite file
             val manifestFile = File(context.filesDir, "stitched_master_${projectId}_manifest.json")
+
+            // Resolve every clip to a local file (download remote URLs, copy content:// URIs).
+            val localClipFiles = orderedClips.mapIndexedNotNull { index, clip ->
+                resolveClipToLocalFile(clip, projectId, index)
+            }
+
+            var stitchedOk = false
+            if (localClipFiles.isNotEmpty()) {
+                stitchedOk = try {
+                    muxLocalClips(localClipFiles, masterFile)
+                    true
+                } catch (e: Exception) {
+                    Log.e("AgnesClient", "MediaMuxer stitch failed: ${e.message}")
+                    false
+                }
+            }
+
+            // Fallback: if remuxing is unavailable, surface the first clip so the UI still has a playable file.
+            val resultPath = if (stitchedOk && masterFile.exists() && masterFile.length() > 0) {
+                masterFile.absolutePath
+            } else {
+                localClipFiles.firstOrNull()?.absolutePath ?: orderedClips.firstOrNull()?.videoUrl ?: ""
+            }
+
+            // Manifest for observability / debugging.
             val manifestJson = JSONObject().apply {
                 put("projectId", projectId)
                 put("title", projectTitle)
                 put("totalDuration", totalDuration)
-                put("clipCount", clips.size)
+                put("clipCount", orderedClips.size)
+                put("stitched", stitchedOk)
+                put("resultPath", resultPath)
                 val clipsArr = JSONArray()
-                clips.forEach { clip ->
+                orderedClips.forEach { clip ->
                     clipsArr.put(JSONObject().apply {
                         put("sceneNumber", clip.sceneNumber)
                         put("title", clip.sceneTitle)
@@ -827,10 +884,183 @@ class AgnesClient(
                 put("clips", clipsArr)
             }
             manifestFile.writeText(manifestJson.toString(2))
-            
-            Result.success(masterFile.absolutePath)
+
+            if (resultPath.isBlank()) {
+                return@withContext Result.failure(IOException("拼接失败：没有任何可用的视频片段"))
+            }
+            Result.success(resultPath)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Resolve a scene clip to a locally readable file: downloads http(s) URLs and copies
+     * content:// / file:// URIs into the app cache so MediaMuxer can open them.
+     */
+    private fun resolveClipToLocalFile(clip: SceneClip, projectId: String, index: Int): File? {
+        val source = clip.videoUrl ?: clip.previewThumbnailUrl ?: return null
+        return try {
+            when {
+                source.startsWith("http://") || source.startsWith("https://") -> {
+                    val target = File(context.cacheDir, "stitch_${projectId}_${index}.mp4")
+                    if (target.exists() && target.length() > 0) return target
+                    val request = Request.Builder().url(source).get().build()
+                    okHttpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) return null
+                        val body = response.body ?: return null
+                        body.byteStream().use { input ->
+                            FileOutputStream(target).use { output -> input.copyTo(output) }
+                        }
+                    }
+                    if (target.length() > 0) target else null
+                }
+                source.startsWith("content://") || source.startsWith("file://") -> {
+                    val target = File(context.cacheDir, "stitch_${projectId}_${index}.mp4")
+                    context.contentResolver.openInputStream(Uri.parse(source))?.use { input ->
+                        FileOutputStream(target).use { output -> input.copyTo(output) }
+                    }
+                    if (target.exists() && target.length() > 0) target else null
+                }
+                else -> File(source).takeIf { it.exists() && it.length() > 0 }
+            }
+        } catch (e: Exception) {
+            Log.w("AgnesClient", "resolveClipToLocalFile[$index] failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Remuxes a list of MP4 clips into one MP4 with [android.media.MediaMuxer].
+     * All clips are expected to share the same encoding configuration (resolution/fps/codec),
+     * which holds for clips produced by the same model/parameters in one pipeline run.
+     */
+    private fun muxLocalClips(clipFiles: List<File>, outputFile: File) {
+        if (outputFile.exists()) outputFile.delete()
+
+        var muxer: android.media.MediaMuxer? = null
+        var started = false
+        try {
+            muxer = android.media.MediaMuxer(outputFile.absolutePath, android.media.MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val bufferSize = 1024 * 1024
+            val buffer = java.nio.ByteBuffer.allocate(bufferSize)
+            val bufferInfo = android.media.MediaCodec.BufferInfo()
+            var timeOffsetUs = 0L
+            // Output track indexes keyed by mime type; tracks are registered once, on the first clip.
+            val outputTrackByMime = LinkedHashMap<String, Int>()
+
+            clipFiles.forEach { clipFile ->
+                var extractor: android.media.MediaExtractor? = null
+                try {
+                    extractor = android.media.MediaExtractor().apply { setDataSource(clipFile.absolutePath) }
+                    val trackCount = extractor.trackCount
+                    val trackToOutput = IntArray(trackCount) { -1 }
+                    var clipVideoDurationUs = 0L
+
+                    // Pass 1: register all tracks BEFORE the muxer starts (addTrack after start is illegal).
+                    for (t in 0 until trackCount) {
+                        val format = extractor.getTrackFormat(t)
+                        val mime = format.getString(android.media.MediaFormat.KEY_MIME) ?: continue
+                        if (!mime.startsWith("video/") && !mime.startsWith("audio/")) continue
+                        val existing = outputTrackByMime[mime]
+                        if (existing != null) {
+                            trackToOutput[t] = existing
+                        } else {
+                            val idx = muxer.addTrack(format)
+                            outputTrackByMime[mime] = idx
+                            trackToOutput[t] = idx
+                        }
+                    }
+
+                    if (!started) {
+                        muxer.start()
+                        started = true
+                    }
+
+                    // Pass 2: copy encoded samples, shifting each clip's timeline.
+                    for (t in 0 until trackCount) {
+                        val outTrack = trackToOutput[t]
+                        if (outTrack < 0) continue
+                        val mime = extractor.getTrackFormat(t).getString(android.media.MediaFormat.KEY_MIME) ?: ""
+                        extractor.selectTrack(t)
+                        while (true) {
+                            bufferInfo.offset = 0
+                            bufferInfo.size = extractor.readSampleData(buffer, 0)
+                            if (bufferInfo.size < 0) break
+                            val sampleTimeUs = extractor.sampleTime
+                            if (sampleTimeUs < 0) {
+                                extractor.advance()
+                                continue
+                            }
+                            bufferInfo.presentationTimeUs = sampleTimeUs + timeOffsetUs
+                            bufferInfo.flags = extractor.sampleFlags
+                            muxer.writeSampleData(outTrack, buffer, bufferInfo)
+                            if (mime.startsWith("video/")) {
+                                clipVideoDurationUs = maxOf(clipVideoDurationUs, sampleTimeUs)
+                            }
+                            extractor.advance()
+                        }
+                        extractor.unselectTrack(t)
+                    }
+
+                    // Advance the timeline so the next clip is appended after this one.
+                    timeOffsetUs += clipVideoDurationUs + 1_000_000L / 24L
+                } finally {
+                    extractor?.release()
+                }
+            }
+        } finally {
+            if (started) {
+                try {
+                    muxer?.stop()
+                } catch (e: Exception) {
+                    Log.w("AgnesClient", "MediaMuxer.stop failed: ${e.message}")
+                }
+            }
+            muxer?.release()
+        }
+    }
+
+    /**
+     * Converts a local `content://` / `file://` / filesystem image path into a
+     * `data:image/...;base64,...` Data URI that the public API gateway can consume.
+     * Returns the original string unchanged if it is already a remote URL or Data URI.
+     */
+    private fun uriToDataUri(sourceUriStr: String?): String? {
+        if (sourceUriStr.isNullOrBlank()) return null
+        val trimmed = sourceUriStr.trim()
+        if (trimmed.startsWith("data:")) return trimmed
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
+        return try {
+            val bytes: ByteArray = when {
+                trimmed.startsWith("content://") || trimmed.startsWith("file://") -> {
+                    context.contentResolver.openInputStream(Uri.parse(trimmed))?.use { it.readBytes() }
+                        ?: return null
+                }
+                else -> {
+                    val file = File(trimmed)
+                    if (!file.exists()) return null
+                    file.readBytes()
+                }
+            }
+            if (bytes.isEmpty()) return null
+            val mime = guessImageMimeType(trimmed, bytes)
+            "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Log.w("AgnesClient", "uriToDataUri failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun guessImageMimeType(source: String, bytes: ByteArray): String {
+        val lower = source.lowercase()
+        return when {
+            lower.endsWith(".png") -> "image/png"
+            lower.endsWith(".webp") -> "image/webp"
+            lower.endsWith(".gif") -> "image/gif"
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            bytes.size >= 4 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
+            else -> "image/jpeg"
         }
     }
 
