@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
+import com.example.ui.components.MarkdownText
 import com.example.data.model.ChatIntentMode
 import com.example.ui.components.ImagePickerBottomSheet
 import com.example.ui.components.RateLimitBanner
@@ -724,7 +725,7 @@ fun ChatMessageItem(
             ),
             color = if (isUser) AgnesVioletDark else CyberCardBg,
             border = androidx.compose.foundation.BorderStroke(1.dp, if (isUser) AgnesViolet else CyberCardBorder),
-            modifier = Modifier.widthIn(max = 300.dp)
+            modifier = if (isUser) Modifier.widthIn(max = 300.dp) else Modifier.fillMaxWidth(0.92f)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 if (message.attachedImageUri != null) {
@@ -745,11 +746,11 @@ fun ChatMessageItem(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                Text(
-                    text = message.content,
+                MarkdownText(
+                    markdown = message.content,
                     fontSize = 13.sp,
-                    color = Color.White,
-                    lineHeight = 18.sp
+                    textColor = Color.White,
+                    lineHeight = 19.sp
                 )
 
                 // If this message is linked to a completed image generation project, render result preview!
