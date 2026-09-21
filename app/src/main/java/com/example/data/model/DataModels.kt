@@ -98,7 +98,7 @@ data class AgnesApiConfig(
     val endpointUrl: String = "https://api.agnes-ai.cn/v1",
     val chatModelName: String = "gpt-4o",
     val modelName: String = "flux-1-dev", // Image Generation / Remix Model
-    val videoModelName: String = "kling-v1", // Video Generation Model
+    val videoModelName: String = "agnes-video-v2.0", // Video Generation Model: "agnes-video-v2.0" or "agnes-video-2.5-flash"
     val chatProviderId: String = "agnes-default",
     val imageProviderId: String = "agnes-default",
     val videoProviderId: String = "agnes-default",

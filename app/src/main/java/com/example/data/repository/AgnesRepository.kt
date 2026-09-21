@@ -243,8 +243,12 @@ class AgnesRepository(
         sourceImageUri: String?,
         sceneCount: Int = 4,
         stylePreset: String = "Cinematic 3D",
+        videoModel: String? = null,
+        aspectRatio: String = "16:9",
+        durationPerScene: Int = 5,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
+        val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
         val projectId = UUID.randomUUID().toString()
         val project = GenerationProject(
             id = projectId,
@@ -255,13 +259,15 @@ class AgnesRepository(
             totalClips = sceneCount,
             completedClips = 0,
             stylePreset = stylePreset,
+            aspectRatio = aspectRatio,
+            durationSeconds = durationPerScene * sceneCount,
             status = GenerationStatus.SCRIPTING,
-            statusMessage = "Dream AI 正在规划 $sceneCount 段电影分镜脚本..."
+            statusMessage = "Dream AI 正在规划 $sceneCount 段电影分镜脚本 (模型: $effectiveModel)..."
         )
         database.projectDao().insertProject(project)
 
         // Step 1: Generate Script
-        onProgress("正在通过 Dream AI 构思分镜脚本...")
+        onProgress("正在通过 Dream AI 构思分镜脚本 (目标模型: $effectiveModel, 比例: $aspectRatio)...")
         val scriptResult = agnesClient.generateVideoScript(
             config = _configFlow.value,
             themePrompt = themePrompt,
@@ -279,20 +285,20 @@ class AgnesRepository(
             return Result.failure(scriptResult.exceptionOrNull() ?: Exception("脚本生成失败"))
         }
 
-        val scenes = scriptResult.getOrThrow().map { it.copy(projectId = projectId) }
+        val scenes = scriptResult.getOrThrow().map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
         database.sceneClipDao().insertClips(scenes)
 
         val updatedProject = project.copy(
             totalClips = scenes.size,
             status = GenerationStatus.GENERATING_CLIPS,
-            statusMessage = "已生成 ${scenes.size} 个分镜脚本，准备依次排队生成多段视频 (限速 1次/分)..."
+            statusMessage = "已生成 ${scenes.size} 个分镜脚本，准备依次排队生成多段视频 (限速 1次/分, 模型: $effectiveModel)..."
         )
         database.projectDao().updateProject(updatedProject)
 
         // Step 2: Sequential Video Generation for each clip respecting 1 request/min
         val completedClips = mutableListOf<SceneClip>()
         for ((index, clip) in scenes.withIndex()) {
-            onProgress("正在生成分镜 ${clip.sceneNumber}/${scenes.size}: ${clip.sceneTitle} (每分钟生成1段)...")
+            onProgress("正在生成分镜 ${clip.sceneNumber}/${scenes.size}: ${clip.sceneTitle} (模型: $effectiveModel, 1段/分)...")
             
             // Mark current clip as generating so carousel UI shows loading animation for this scene
             val generatingClip = clip.copy(
@@ -308,6 +314,9 @@ class AgnesRepository(
                 projectId = projectId,
                 stylePreset = stylePreset,
                 sourceImageUri = sourceImageUri,
+                modelOverride = effectiveModel,
+                aspectRatio = aspectRatio,
+                durationSeconds = durationPerScene,
                 onTaskIdReceived = { taskId ->
                     val updatedWithTaskId = generatingClip.copy(
                         taskId = taskId,

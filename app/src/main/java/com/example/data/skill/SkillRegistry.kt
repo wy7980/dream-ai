@@ -124,6 +124,26 @@ class VideoGenerationSkill(
             required = true
         ),
         SkillParam(
+            name = "model",
+            type = "string",
+            description = "指定的视频生成模型（如 'agnes-video-v2.0' 或 'agnes-video-2.5-flash'，不填则使用系统配置模型）",
+            required = false
+        ),
+        SkillParam(
+            name = "aspectRatio",
+            type = "string",
+            description = "画面比例，如 '16:9'、'9:16'、'4:3'、'1:1'、'3:4'、'21:9'",
+            required = false,
+            defaultValue = "16:9"
+        ),
+        SkillParam(
+            name = "duration",
+            type = "int",
+            description = "单段视频时长（秒），如 5 或 10",
+            required = false,
+            defaultValue = 5
+        ),
+        SkillParam(
             name = "sceneCount",
             type = "int",
             description = "分镜段数（默认 4 段，可设 2~6 段）",
@@ -151,17 +171,25 @@ class VideoGenerationSkill(
     ): SkillResult {
         val themePrompt = arguments["themePrompt"]?.toString()?.takeIf { it.isNotBlank() }
             ?: "电影级叙事视觉短片"
+        val explicitModel = arguments["model"]?.toString()?.takeIf { it.isNotBlank() }
+        val aspectRatio = arguments["aspectRatio"]?.toString()?.takeIf { it.isNotBlank() } ?: "16:9"
+        val duration = (arguments["duration"] as? Number)?.toInt() ?: 5
         val sceneCount = (arguments["sceneCount"] as? Number)?.toInt() ?: 4
         val stylePreset = arguments["stylePreset"]?.toString() ?: "Cinematic 3D"
         val sourceImageUri = arguments["sourceImageUri"]?.toString() ?: context.attachedImageUri
 
-        context.onProgress("技能 [video-generation] 正在规划分镜脚本与运镜语言...")
+        val effectiveModel = explicitModel ?: context.config.videoModelName
+
+        context.onProgress("技能 [video-generation] 正在规划分镜脚本与运镜语言 (模型: $effectiveModel, 比例: $aspectRatio)...")
 
         val result = repository.startFullVideoPipeline(
             themePrompt = themePrompt,
             sourceImageUri = sourceImageUri,
             sceneCount = sceneCount,
             stylePreset = stylePreset,
+            videoModel = effectiveModel,
+            aspectRatio = aspectRatio,
+            durationPerScene = duration,
             onProgress = context.onProgress
         )
 
@@ -169,12 +197,12 @@ class VideoGenerationSkill(
             val project = result.getOrThrow()
             SkillResult(
                 success = true,
-                outputMessage = "🎬 AI 电影视频流水线技能执行成功！全部分镜生成完毕并已合成。",
+                outputMessage = "🎬 AI 电影视频流水线技能执行成功！全部分镜已基于模型 [$effectiveModel] 生成完毕并拼接合成。",
                 relatedProjectId = project.id,
                 outputVideoUrl = project.resultVideoUri,
                 intermediateSteps = listOf(
                     "规划 $sceneCount 段电影分镜脚本与运镜参数",
-                    "在 60s 冷却队列中依次调用视频渲染模型 (${context.config.videoModelName})",
+                    "在 60s 冷却队列中依次调用自适应视频渲染模型 ($effectiveModel, 画面比例: $aspectRatio)",
                     "多段分镜片段已成功捕获与校验",
                     "完成时间轴音视频拼接并输出最终成果"
                 )

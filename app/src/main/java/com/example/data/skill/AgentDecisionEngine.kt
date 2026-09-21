@@ -58,15 +58,30 @@ class AgentDecisionEngine(
         if (mode == ChatIntentMode.VIDEO_GEN) {
             val videoSkill = activeSkills.find { it.id == "video-generation" }
             if (videoSkill != null) {
+                val detectedModel = when {
+                    lower.contains("2.5-flash") || lower.contains("2.5_flash") || lower.contains("2.5 flash") || lower.contains("25flash") || lower.contains("flash") -> "agnes-video-2.5-flash"
+                    lower.contains("2.0") || lower.contains("v2.0") || lower.contains("v20") -> "agnes-video-v2.0"
+                    else -> null
+                }
+                val detectedRatio = when {
+                    lower.contains("9:16") || lower.contains("竖屏") || lower.contains("抖音") || lower.contains("短视频") -> "9:16"
+                    lower.contains("4:3") -> "4:3"
+                    lower.contains("1:1") || lower.contains("方形") -> "1:1"
+                    lower.contains("21:9") -> "21:9"
+                    else -> "16:9"
+                }
                 return AgentDecision.InvokeSkill(
                     skill = videoSkill,
                     arguments = mapOf(
                         "themePrompt" to if (userPrompt.isNotBlank()) userPrompt else "多幕史诗电影视频短片",
                         "sourceImageUri" to attachedImageUri,
+                        "model" to detectedModel,
+                        "aspectRatio" to detectedRatio,
+                        "duration" to 5,
                         "sceneCount" to 4,
                         "stylePreset" to "Cinematic 3D"
                     ),
-                    preThoughtText = "🧠 [智能体思考] 用户指定了视频生成模式。已加载并调度技能 `[video-generation]` 规划分镜并逐段渲染合成。"
+                    preThoughtText = "🧠 [智能体思考] 用户指定了视频生成模式。已加载并调度技能 `[video-generation]` 规划分镜并逐段渲染合成 (模型: ${detectedModel ?: config.videoModelName}, 比例: $detectedRatio)。"
                 )
             }
         }
@@ -217,15 +232,30 @@ class AgentDecisionEngine(
                     lower.contains("video") || lower.contains("movie") ||
                     (lower.contains("生成") && lower.contains("片"))
                 )) {
+            val detectedModel = when {
+                lower.contains("2.5-flash") || lower.contains("2.5_flash") || lower.contains("2.5 flash") || lower.contains("25flash") || lower.contains("flash") -> "agnes-video-2.5-flash"
+                lower.contains("2.0") || lower.contains("v2.0") || lower.contains("v20") -> "agnes-video-v2.0"
+                else -> null
+            }
+            val detectedRatio = when {
+                lower.contains("9:16") || lower.contains("竖屏") || lower.contains("抖音") || lower.contains("短视频") -> "9:16"
+                lower.contains("4:3") -> "4:3"
+                lower.contains("1:1") || lower.contains("方形") -> "1:1"
+                lower.contains("21:9") -> "21:9"
+                else -> "16:9"
+            }
             return AgentDecision.InvokeSkill(
                 skill = videoSkill,
                 arguments = mapOf(
                     "themePrompt" to userPrompt,
                     "sourceImageUri" to attachedImageUri,
+                    "model" to detectedModel,
+                    "aspectRatio" to detectedRatio,
+                    "duration" to 5,
                     "sceneCount" to 4,
                     "stylePreset" to "Cinematic 3D"
                 ),
-                preThoughtText = "🧠 [智能体思考] 检测到视频创作指令，已自主调度 `[${videoSkill.name}]` 技能规划视听剧本并开启渲染合成流水线。"
+                preThoughtText = "🧠 [智能体思考] 检测到视频创作指令，已自主调度 `[${videoSkill.name}]` 技能规划视听剧本并开启渲染合成流水线 (模型: ${detectedModel ?: config.videoModelName}, 比例: $detectedRatio)。"
             )
         }
 

@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -103,6 +104,9 @@ fun VideoPipelineScreen(
         )
     }
     var sourceImageUri by remember { mutableStateOf(initialImageUri) }
+    var selectedModel by remember { mutableStateOf("agnes-video-2.5-flash") }
+    var selectedRatio by remember { mutableStateOf("16:9") }
+    var sceneDuration by remember { mutableIntStateOf(5) }
     var sceneCount by remember { mutableIntStateOf(4) }
     var selectedStyle by remember { mutableStateOf("Cinematic 3D") }
     var showImagePicker by remember { mutableStateOf(false) }
@@ -275,12 +279,83 @@ fun VideoPipelineScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Scene count and style selector
+                    // Model Selection: 2.5-flash vs v2.0
+                    Text(
+                        text = "生成模型与画质引擎:",
+                        fontSize = 11.sp,
+                        color = AppTextSecondary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val models = listOf(
+                            "agnes-video-2.5-flash" to "2.5-Flash (快速高清 720P)",
+                            "agnes-video-v2.0" to "2.0 (多分辨率支持)"
+                        )
+                        models.forEach { (modelId, label) ->
+                            val isSelected = selectedModel == modelId
+                            Surface(
+                                onClick = { selectedModel = modelId },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) AgnesViolet.copy(alpha = 0.2f) else AppSubtleBg,
+                                border = BorderStroke(1.dp, if (isSelected) AgnesViolet else Color.Transparent),
+                                modifier = Modifier.weight(1f).height(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 4.dp)) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) AgnesCyan else AppTextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Aspect Ratio and Scene count
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Column {
+                            Text(
+                                text = "画面比例:",
+                                fontSize = 11.sp,
+                                color = AppTextSecondary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                listOf("16:9", "9:16", "1:1").forEach { ratio ->
+                                    val isSelected = selectedRatio == ratio
+                                    Surface(
+                                        onClick = { selectedRatio = ratio },
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isSelected) AgnesCyan else AppSubtleBg,
+                                        modifier = Modifier.size(width = 46.dp, height = 28.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = ratio,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSelected) Color(0xFF0A0D14) else AppTextPrimary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         Column {
                             Text(
                                 text = "分镜幕数:",
@@ -309,22 +384,6 @@ fun VideoPipelineScreen(
                                     }
                                 }
                             }
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "限速预估用时:",
-                                fontSize = 11.sp,
-                                color = AppTextSecondary,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = "约 ${sceneCount} 分钟 (1段/分)",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AgnesAmber
-                            )
                         }
                     }
 
@@ -369,7 +428,10 @@ fun VideoPipelineScreen(
                                     themePrompt = themePrompt,
                                     sourceImageUri = sourceImageUri,
                                     sceneCount = sceneCount,
-                                    stylePreset = selectedStyle
+                                    stylePreset = selectedStyle,
+                                    videoModel = selectedModel,
+                                    aspectRatio = selectedRatio,
+                                    durationPerScene = sceneDuration
                                 )
                             },
                             modifier = Modifier

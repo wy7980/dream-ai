@@ -445,10 +445,15 @@ class AgnesClient(
         projectId: String,
         stylePreset: String,
         sourceImageUri: String? = null,
+        modelOverride: String? = null,
+        aspectRatio: String = "16:9",
+        durationSeconds: Int = 5,
         onTaskIdReceived: suspend (String) -> Unit = {},
         onStatusUpdate: suspend (String) -> Unit = {}
     ): Result<VideoClipResult> = withContext(Dispatchers.IO) {
-        rateLimitManager.executeRateLimited("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}]") {
+        val effectiveModel = modelOverride?.trim()?.ifBlank { null }
+            ?: config.videoModelName.trim().ifBlank { "agnes-video-v2.0" }
+        rateLimitManager.executeRateLimited("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
             try {
                 val provider = resolveProvider(config, config.videoProviderId)
                 if (provider.apiKey.isNotBlank()) {
@@ -457,24 +462,76 @@ class AgnesClient(
                         base = "https://api.agnes-ai.cn/v1"
                     }
                     val endpoint = if (base.endsWith("/v1")) "$base/videos" else "$base/v1/videos"
-                    val sceneDuration = if (scene.durationSeconds > 0) scene.durationSeconds else 10
+                    val sceneDuration = if (durationSeconds > 0) durationSeconds else if (scene.durationSeconds > 0) scene.durationSeconds else 5
 
-                    val modelName = config.videoModelName.trim().ifBlank { "agnes-video-v2.0" }
-                    val modeValue = when {
-                        modelName.contains("v2.0", ignoreCase = true) || modelName.contains("v20", ignoreCase = true) -> "ti2vid"
-                        modelName.contains("2.5", ignoreCase = true) -> "text"
-                        else -> "text"
+                    val normalizedAspectRatio = when (aspectRatio.trim()) {
+                        "9:16", "9/16", "竖屏" -> "9:16"
+                        "4:3", "4/3" -> "4:3"
+                        "3:4", "3/4" -> "3:4"
+                        "1:1", "1/1", "方形" -> "1:1"
+                        "21:9", "21/9" -> "21:9"
+                        else -> "16:9"
                     }
 
                     val requestJson = JSONObject().apply {
-                        put("model", modelName)
-                        put("prompt", "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset")
-                        put("height", 768)
-                        put("width", 1152)
-                        put("num_frames", 121)
-                        put("frame_rate", 24)
-                        if (!sourceImageUri.isNullOrBlank()) {
-                            put("image", sourceImageUri)
+                        put("model", effectiveModel)
+                        val combinedPrompt = "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset"
+                        put("prompt", combinedPrompt)
+
+                        when {
+                            // Agnes Video 2.5 Flash: Fixed to 720P, ratio/aspect_ratio, duration (seconds), no num_frames/width/height
+                            effectiveModel.contains("2.5-flash", ignoreCase = true) ||
+                            effectiveModel.contains("25-flash", ignoreCase = true) ||
+                            effectiveModel.contains("2.5_flash", ignoreCase = true) -> {
+                                put("size", "720P")
+                                put("aspect_ratio", normalizedAspectRatio)
+                                put("duration", sceneDuration.coerceIn(4, 12).toString())
+                                put("seconds", sceneDuration.coerceIn(4, 12).toString())
+                                if (!sourceImageUri.isNullOrBlank()) {
+                                    put("image", sourceImageUri)
+                                }
+                            }
+                            // Agnes Video 2.5 Standard: size (720P/1080P), aspect_ratio, duration
+                            effectiveModel.contains("2.5", ignoreCase = true) || effectiveModel.contains("25", ignoreCase = true) -> {
+                                put("size", "720P")
+                                put("aspect_ratio", normalizedAspectRatio)
+                                put("duration", sceneDuration.coerceIn(4, 12).toString())
+                                put("seconds", sceneDuration.coerceIn(4, 12).toString())
+                                if (!sourceImageUri.isNullOrBlank()) {
+                                    put("image", sourceImageUri)
+                                }
+                            }
+                            // Agnes Video V2.0: width, height, num_frames (121 or 241), frame_rate (24)
+                            effectiveModel.contains("v2.0", ignoreCase = true) ||
+                            effectiveModel.contains("v20", ignoreCase = true) ||
+                            effectiveModel.contains("agnes-video", ignoreCase = true) -> {
+                                val (w, h) = when (normalizedAspectRatio) {
+                                    "9:16" -> Pair(768, 1152)
+                                    "4:3" -> Pair(1152, 864)
+                                    "3:4" -> Pair(864, 1152)
+                                    "1:1" -> Pair(1024, 1024)
+                                    "21:9" -> Pair(1280, 544)
+                                    else -> Pair(1152, 768) // 16:9
+                                }
+                                val frames = if (sceneDuration >= 10) 241 else 121
+                                put("width", w)
+                                put("height", h)
+                                put("num_frames", frames)
+                                put("frame_rate", 24)
+                                if (!sourceImageUri.isNullOrBlank()) {
+                                    put("image", sourceImageUri)
+                                }
+                            }
+                            // Generic / Other Video Models (CogVideo, Kling, Minimax, Sora)
+                            else -> {
+                                put("aspect_ratio", normalizedAspectRatio)
+                                put("duration", sceneDuration)
+                                put("seconds", sceneDuration)
+                                if (!sourceImageUri.isNullOrBlank()) {
+                                    put("image", sourceImageUri)
+                                    put("image_url", sourceImageUri)
+                                }
+                            }
                         }
                     }
 
@@ -486,7 +543,7 @@ class AgnesClient(
                         .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                         .build()
 
-                    onStatusUpdate("已向接口提交创建请求 [$modelName]...")
+                    onStatusUpdate("已向接口提交创建请求 [$effectiveModel]...")
                     val response = okHttpClient.newCall(request).execute()
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
@@ -494,14 +551,14 @@ class AgnesClient(
                             val json = JSONObject(body)
                             var videoUrl = extractVideoUrlFromJson(json)
 
-                            var videoId = json.optString("video_id")
-                            var taskId = json.optString("task_id").ifBlank { json.optString("id") }
+                            var videoId = json.optCleanString("video_id")
+                            var taskId = json.optCleanString("task_id").ifBlank { json.optCleanString("id") }
                             if (videoId.isBlank()) {
                                 val dataObj = json.optJSONObject("data")
                                 if (dataObj != null) {
-                                    videoId = dataObj.optString("video_id")
+                                    videoId = dataObj.optCleanString("video_id")
                                     if (taskId.isBlank()) {
-                                        taskId = dataObj.optString("task_id").ifBlank { dataObj.optString("id") }
+                                        taskId = dataObj.optCleanString("task_id").ifBlank { dataObj.optCleanString("id") }
                                     }
                                 }
                             }
@@ -531,6 +588,7 @@ class AgnesClient(
                                     baseEndpoint = endpoint,
                                     videoId = videoId,
                                     taskId = taskId,
+                                    modelName = effectiveModel,
                                     headerName = headerName,
                                     apiKey = provider.apiKey.trim(),
                                     onStatusUpdate = onStatusUpdate
@@ -565,41 +623,60 @@ class AgnesClient(
         }
     }
 
+    private fun JSONObject.optCleanString(key: String): String {
+        if (!has(key) || isNull(key)) return ""
+        val str = optString(key).trim()
+        if (str.equals("null", ignoreCase = true) || str.equals("undefined", ignoreCase = true)) return ""
+        return str
+    }
+
     /**
      * Helper to extract video URL from various Agnes/OpenAI-compatible JSON responses
      */
     private fun extractVideoUrlFromJson(json: JSONObject): String {
-        var videoUrl = json.optString("video_url")
-        if (videoUrl.isBlank()) videoUrl = json.optString("url")
+        fun isValidUrl(url: String): Boolean {
+            if (url.isBlank() || url.equals("null", ignoreCase = true)) return false
+            val lower = url.lowercase()
+            return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("file://") || lower.startsWith("content://")
+        }
 
-        if (videoUrl.isBlank()) {
-            val metaObj = json.optJSONObject("metadata")
-            if (metaObj != null) {
-                videoUrl = metaObj.optString("url").ifBlank { metaObj.optString("video_url") }
+        var candidate = json.optCleanString("url")
+        if (isValidUrl(candidate)) return candidate
+
+        candidate = json.optCleanString("video_url")
+        if (isValidUrl(candidate)) return candidate
+
+        candidate = json.optCleanString("output_url")
+        if (isValidUrl(candidate)) return candidate
+
+        val metaObj = json.optJSONObject("metadata")
+        if (metaObj != null) {
+            candidate = metaObj.optCleanString("url").ifBlank { metaObj.optCleanString("video_url") }
+            if (isValidUrl(candidate)) return candidate
+        }
+
+        val outputObj = json.optJSONObject("output")
+        if (outputObj != null) {
+            candidate = outputObj.optCleanString("url").ifBlank { outputObj.optCleanString("video_url") }
+            if (isValidUrl(candidate)) return candidate
+        }
+
+        val resultObj = json.optJSONObject("result")
+        if (resultObj != null) {
+            candidate = resultObj.optCleanString("url").ifBlank { resultObj.optCleanString("video_url") }
+            if (isValidUrl(candidate)) return candidate
+        }
+
+        val dataArr = json.optJSONArray("data")
+        if (dataArr != null && dataArr.length() > 0) {
+            val item = dataArr.optJSONObject(0)
+            if (item != null) {
+                candidate = item.optCleanString("url").ifBlank { item.optCleanString("video_url") }
+                if (isValidUrl(candidate)) return candidate
             }
         }
-        if (videoUrl.isBlank()) {
-            val outputObj = json.optJSONObject("output")
-            if (outputObj != null) {
-                videoUrl = outputObj.optString("video_url").ifBlank { outputObj.optString("url") }
-            }
-        }
-        if (videoUrl.isBlank()) {
-            val resultObj = json.optJSONObject("result")
-            if (resultObj != null) {
-                videoUrl = resultObj.optString("video_url").ifBlank { resultObj.optString("url") }
-            }
-        }
-        if (videoUrl.isBlank()) {
-            val dataArr = json.optJSONArray("data")
-            if (dataArr != null && dataArr.length() > 0) {
-                val item = dataArr.optJSONObject(0)
-                if (item != null) {
-                    videoUrl = item.optString("url").ifBlank { item.optString("video_url") }
-                }
-            }
-        }
-        return videoUrl
+
+        return ""
     }
 
     /**
@@ -609,6 +686,7 @@ class AgnesClient(
         baseEndpoint: String,
         videoId: String,
         taskId: String,
+        modelName: String = "",
         headerName: String,
         apiKey: String,
         onStatusUpdate: suspend (String) -> Unit = {}
@@ -619,6 +697,9 @@ class AgnesClient(
         if (videoId.isNotBlank()) {
             val domain = if (cleanBase.contains("api.agnes-ai.cn")) "https://api.agnes-ai.cn" else cleanBase.substringBefore("/v1")
             candidateUrls.add("$domain/agnesapi?video_id=$videoId")
+            if (modelName.isNotBlank()) {
+                candidateUrls.add("$domain/agnesapi?video_id=$videoId&model_name=$modelName")
+            }
             candidateUrls.add("$cleanBase/videos?video_id=$videoId")
         }
         if (taskId.isNotBlank()) {
@@ -652,13 +733,14 @@ class AgnesClient(
                         if (body.startsWith("{")) {
                             val json = JSONObject(body)
                             val extractedUrl = extractVideoUrlFromJson(json)
-                            val status = json.optString("status")
-                                .ifBlank { json.optString("internal_status") }
-                                .ifBlank { json.optString("task_status") }
+                            val status = json.optCleanString("status")
+                                .ifBlank { json.optCleanString("internal_status") }
+                                .ifBlank { json.optCleanString("task_status") }
                                 .lowercase()
 
-                            val prog = if (json.has("progress")) json.optInt("progress")
-                                       else json.optInt("internal_progress", -1)
+                            val prog = if (json.has("progress") && !json.isNull("progress")) json.optInt("progress")
+                                       else if (json.has("internal_progress") && !json.isNull("internal_progress")) json.optInt("internal_progress", -1)
+                                       else -1
                             if (prog in 0..100) {
                                 currentProgress = prog
                             }
@@ -667,16 +749,16 @@ class AgnesClient(
                                 foundVideoUrl = extractedUrl
                                 break
                             } else if (status == "completed" || status == "succeeded" || prog == 100) {
-                                val directUrl = json.optString("url")
-                                if (directUrl.isNotBlank()) {
-                                    foundVideoUrl = directUrl
+                                val altUrl = extractVideoUrlFromJson(json)
+                                if (altUrl.isNotBlank()) {
+                                    foundVideoUrl = altUrl
                                     break
                                 }
                             } else if (status == "failed" || status == "error") {
                                 isFailed = true
-                                failureMessage = json.optString("error")
-                                    .ifBlank { json.optString("error_message") }
-                                    .ifBlank { json.optString("message") }
+                                failureMessage = json.optCleanString("error")
+                                    .ifBlank { json.optCleanString("error_message") }
+                                    .ifBlank { json.optCleanString("message") }
                                 break
                             } else if (status == "queued" || status == "processing" || status == "in_progress") {
                                 // Successfully queried active progress

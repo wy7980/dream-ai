@@ -300,6 +300,9 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         sourceImageUri: String?,
         sceneCount: Int = 4,
         stylePreset: String = "Cinematic 3D",
+        videoModel: String? = null,
+        aspectRatio: String = "16:9",
+        durationPerScene: Int = 5,
         onSuccess: (GenerationProject) -> Unit = {}
     ) {
         if (themePrompt.isBlank() && sourceImageUri == null) {
@@ -318,6 +321,9 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                     sourceImageUri = sourceImageUri,
                     sceneCount = sceneCount,
                     stylePreset = stylePreset,
+                    videoModel = videoModel,
+                    aspectRatio = aspectRatio,
+                    durationPerScene = durationPerScene,
                     onProgress = { msg ->
                         _videoProgressMessage.value = msg
                     }
