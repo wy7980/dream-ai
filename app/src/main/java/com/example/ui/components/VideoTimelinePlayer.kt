@@ -56,14 +56,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
 import com.example.data.model.SceneClip
@@ -77,14 +75,7 @@ import com.example.ui.theme.AppTextPrimary
 import com.example.ui.theme.AppTextSecondary
 import com.example.ui.theme.CyberCardBg
 import com.example.ui.theme.CyberCardBorder
-import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.delay
-import java.io.File
-
-private fun safeVideoModel(uri: String?): Any? {
-    if (uri.isNullOrBlank()) return null
-    return if (uri.startsWith("/")) File(uri) else uri
-}
 
 @Composable
 fun VideoTimelinePlayer(
@@ -194,33 +185,13 @@ fun VideoTimelinePlayer(
             ) {
                 if (isClipCompleted) {
                     val realVideoUrl = activeClip!!.videoUrl!!
-                    val videoModel = safeVideoModel(realVideoUrl)
-                    val camLower = activeClip.cameraMovement.lowercase()
-                    val motionScale = if (isPlaying) {
-                        if (camLower.contains("zoom") || camLower.contains("推") || camLower.contains("close")) {
-                            1.0f + (playbackProgress * 0.18f)
-                        } else if (camLower.contains("crane") || camLower.contains("远") || camLower.contains("俯瞰")) {
-                            1.18f - (playbackProgress * 0.14f)
-                        } else {
-                            1.05f + (playbackProgress * 0.06f)
-                        }
-                    } else 1.05f
 
-                    val motionPanX = if (isPlaying && (camLower.contains("track") || camLower.contains("pan") || camLower.contains("跟"))) {
-                        (playbackProgress - 0.5f) * 45f
-                    } else 0f
-
-                    AsyncImage(
-                        model = videoModel,
-                        contentDescription = activeClip.sceneTitle,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = motionScale
-                                scaleY = motionScale
-                                translationX = motionPanX
-                            },
-                        contentScale = ContentScale.Crop
+                    // Real video playback via ExoPlayer (Coil only decoded the first frame before).
+                    VideoPlayerView(
+                        videoSource = realVideoUrl,
+                        playWhenReady = isPlaying,
+                        looping = isLooping,
+                        modifier = Modifier.fillMaxSize()
                     )
 
                     // Cinematic vignette overlay

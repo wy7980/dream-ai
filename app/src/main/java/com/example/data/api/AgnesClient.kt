@@ -627,10 +627,14 @@ class AgnesClient(
                         }
                     } else {
                         val errBody = response.body?.string() ?: ""
-                        // Transient rate limit -> let the retry wrapper back off and retry.
-                        if (response.code == 429 || errBody.contains("rate_limit_exceeded")) {
+                        // Transient server conditions -> let the retry wrapper back off and retry.
+                        //  429 / rate_limit_exceeded : API rate limit (free tier)
+                        //  503 / video_queue_full    : render queue saturated, try again shortly
+                        if (response.code == 429 || errBody.contains("rate_limit_exceeded") ||
+                            response.code == 503 || errBody.contains("video_queue_full")
+                        ) {
                             throw RateLimitException(
-                                "接口触发限流 HTTP ${response.code}: ${errBody.take(150)}",
+                                "接口暂不可用 HTTP ${response.code}: ${errBody.take(150)}",
                                 retryAfterSeconds = response.header("Retry-After")?.trim()?.toIntOrNull()
                             )
                         }

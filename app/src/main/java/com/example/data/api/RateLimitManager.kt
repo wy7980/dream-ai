@@ -133,8 +133,8 @@ class RateLimitManager(
      */
     suspend fun <T> executeRateLimitedWithRetry(
         taskName: String,
-        maxAttempts: Int = 4,
-        baseDelayMs: Long = 3_000L,
+        maxAttempts: Int = 6,
+        baseDelayMs: Long = 5_000L,
         block: suspend (attempt: Int) -> T
     ): T {
         var attempt = 1
