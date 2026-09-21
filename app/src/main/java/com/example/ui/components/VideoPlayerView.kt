@@ -49,7 +49,8 @@ fun VideoPlayerView(
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            playWhenReady = false
+            // `this.` is required: the bare name would resolve to the `playWhenReady` parameter above.
+            this.playWhenReady = false
         }
     }
 
