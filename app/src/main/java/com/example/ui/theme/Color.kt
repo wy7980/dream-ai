@@ -42,3 +42,15 @@ val DarkOnSurface = TextPrimary
 val DarkSurfaceVariant = CyberCardBorder
 val DarkOnSurfaceVariant = TextSecondary
 
+// Light Theme Palette
+val LightBackground = Color(0xFFF8FAFC)       // Crisp soft white
+val LightOnBackground = Color(0xFF0F172A)     // Deep slate navy
+val LightSurface = Color(0xFFFFFFFF)          // Pure white card
+val LightOnSurface = Color(0xFF0F172A)
+val LightSurfaceVariant = Color(0xFFE2E8F0)   // Soft border
+val LightOnSurfaceVariant = Color(0xFF475569) // Secondary slate
+val LightPrimaryContainer = Color(0xFFEDE9FE)
+val LightOnPrimaryContainer = Color(0xFF5B21B6)
+val LightSecondaryContainer = Color(0xFFCFFAFE)
+val LightOnSecondaryContainer = Color(0xFF0E7490)
+

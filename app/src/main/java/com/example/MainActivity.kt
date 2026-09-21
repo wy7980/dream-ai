@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -85,7 +86,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MyApplicationTheme {
+            val config by viewModel.config.collectAsState()
+            MyApplicationTheme(darkTheme = config.isDarkTheme) {
                 MainAppContent(viewModel = viewModel)
             }
         }
@@ -114,7 +116,7 @@ fun MainAppContent(viewModel: AgnesViewModel) {
                 modifier = Modifier
                     .navigationBarsPadding()
                     .testTag("main_bottom_nav"),
-                containerColor = Color(0xFF0F172A),
+                containerColor = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp
             ) {
                 AppNavTab.values().forEach { tab ->
@@ -137,11 +139,11 @@ fun MainAppContent(viewModel: AgnesViewModel) {
                             )
                         },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = AgnesCyan,
-                            selectedTextColor = AgnesCyan,
-                            unselectedIconColor = Color(0xFF94A3B8),
-                            unselectedTextColor = Color(0xFF94A3B8),
-                            indicatorColor = AgnesViolet.copy(alpha = 0.25f)
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
                         ),
                         modifier = Modifier.testTag(tab.tag)
                     )
@@ -152,7 +154,7 @@ fun MainAppContent(viewModel: AgnesViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(CyberObsidian)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
         ) {
             AnimatedContent(

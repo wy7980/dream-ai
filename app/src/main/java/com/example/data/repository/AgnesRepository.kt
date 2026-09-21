@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.example.data.api.AgnesClient
 import com.example.data.api.RateLimitManager
 import com.example.data.local.AppDatabase
+import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
 import com.example.data.model.GenerationProject
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
 
 class AgnesRepository(
@@ -47,7 +50,8 @@ class AgnesRepository(
     }
 
     private fun loadConfig(): AgnesApiConfig {
-        val rawEndpoint = prefs.getString("endpoint_url", "https://api.agnes-ai.cn/v1") ?: "https://api.agnes-ai.cn/v1"
+        val defaultConfig = AgnesApiConfig()
+        val rawEndpoint = prefs.getString("endpoint_url", defaultConfig.endpointUrl) ?: defaultConfig.endpointUrl
         val endpoint = if (rawEndpoint.contains("api.agnes.ai") || rawEndpoint.isBlank()) {
             "https://api.agnes-ai.cn/v1"
         } else {
@@ -63,27 +67,93 @@ class AgnesRepository(
         val rawVideo = prefs.getString("video_model_name", "kling-v1") ?: "kling-v1"
         val videoModel = if (rawVideo == "agnes-video-gen-v2") "kling-v1" else rawVideo
 
+        val providersJsonStr = prefs.getString("providers_json", null)
+        val providersList = if (!providersJsonStr.isNullOrBlank()) {
+            try {
+                val array = JSONArray(providersJsonStr)
+                val list = mutableListOf<AIProvider>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val customModelsArr = obj.optJSONArray("customModels")
+                    val customModelsList = mutableListOf<String>()
+                    if (customModelsArr != null) {
+                        for (j in 0 until customModelsArr.length()) {
+                            customModelsList.add(customModelsArr.getString(j))
+                        }
+                    }
+                    list.add(
+                        AIProvider(
+                            id = obj.optString("id", UUID.randomUUID().toString()),
+                            name = obj.optString("name", "Custom Provider"),
+                            endpointUrl = obj.optString("endpointUrl", "https://api.agnes-ai.cn/v1"),
+                            apiKey = obj.optString("apiKey", ""),
+                            authHeader = obj.optString("authHeader", "Bearer"),
+                            customModels = customModelsList,
+                            isDefault = obj.optBoolean("isDefault", false),
+                            description = obj.optString("description", "")
+                        )
+                    )
+                }
+                if (list.isNotEmpty()) list else defaultConfig.providers
+            } catch (e: Exception) {
+                defaultConfig.providers
+            }
+        } else {
+            defaultConfig.providers
+        }
+
+        val chatProvId = prefs.getString("chat_provider_id", "agnes-default") ?: "agnes-default"
+        val imgProvId = prefs.getString("image_provider_id", "agnes-default") ?: "agnes-default"
+        val vidProvId = prefs.getString("video_provider_id", "agnes-default") ?: "agnes-default"
+
         return AgnesApiConfig(
             apiKey = prefs.getString("api_key", "") ?: "",
             endpointUrl = endpoint,
             chatModelName = chatModel,
             modelName = imageModel,
             videoModelName = videoModel,
+            chatProviderId = chatProvId,
+            imageProviderId = imgProvId,
+            videoProviderId = vidProvId,
+            providers = providersList,
             rateLimitSeconds = prefs.getInt("rate_limit_seconds", 60),
             autoStitchVideos = prefs.getBoolean("auto_stitch", true),
+            isDarkTheme = prefs.getBoolean("is_dark_theme", true),
             customAuthHeader = prefs.getString("auth_header", "Bearer") ?: "Bearer"
         )
     }
 
     fun saveConfig(config: AgnesApiConfig) {
+        val providersArray = JSONArray()
+        config.providers.forEach { provider ->
+            val obj = JSONObject().apply {
+                put("id", provider.id)
+                put("name", provider.name)
+                put("endpointUrl", provider.endpointUrl)
+                put("apiKey", provider.apiKey)
+                put("authHeader", provider.authHeader)
+                put("isDefault", provider.isDefault)
+                put("description", provider.description)
+                val modelsArr = JSONArray()
+                provider.customModels.forEach { modelsArr.put(it) }
+                put("customModels", modelsArr)
+            }
+            providersArray.put(obj)
+        }
+
         prefs.edit()
             .putString("api_key", config.apiKey.trim())
             .putString("endpoint_url", config.endpointUrl.trim())
             .putString("chat_model_name", config.chatModelName.trim())
             .putString("model_name", config.modelName.trim())
             .putString("video_model_name", config.videoModelName.trim())
+            .putString("chat_provider_id", config.chatProviderId)
+            .putString("image_provider_id", config.imageProviderId)
+            .putString("video_provider_id", config.videoProviderId)
+            .putString("providers_json", providersArray.toString())
             .putInt("rate_limit_seconds", config.rateLimitSeconds)
             .putBoolean("auto_stitch", config.autoStitchVideos)
+            .putBoolean("is_dark_theme", config.isDarkTheme)
             .putString("auth_header", config.customAuthHeader.trim())
             .apply()
 
@@ -93,6 +163,14 @@ class AgnesRepository(
 
     suspend fun fetchRemoteModels(): Result<List<String>> {
         return agnesClient.fetchAvailableModels(_configFlow.value)
+    }
+
+    suspend fun fetchModelsForProvider(provider: AIProvider): Result<List<String>> {
+        return agnesClient.fetchAvailableModelsForProvider(provider)
+    }
+
+    suspend fun testProviderConnection(provider: AIProvider): Result<String> {
+        return agnesClient.testProviderConnection(provider)
     }
 
     suspend fun generateChatReply(history: List<ChatMessage>, prompt: String): Result<String> {

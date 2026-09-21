@@ -79,14 +79,67 @@ enum class ChatIntentMode {
     VIDEO_GEN
 }
 
+data class AIProvider(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val endpointUrl: String,
+    val apiKey: String = "",
+    val authHeader: String = "Bearer",
+    val customModels: List<String> = emptyList(),
+    val isDefault: Boolean = false,
+    val description: String = ""
+)
+
 data class AgnesApiConfig(
     val apiKey: String = "",
     val endpointUrl: String = "https://api.agnes-ai.cn/v1",
     val chatModelName: String = "gpt-4o",
     val modelName: String = "flux-1-dev", // Image Generation / Remix Model
     val videoModelName: String = "kling-v1", // Video Generation Model
+    val chatProviderId: String = "agnes-default",
+    val imageProviderId: String = "agnes-default",
+    val videoProviderId: String = "agnes-default",
+    val providers: List<AIProvider> = listOf(
+        AIProvider(
+            id = "agnes-default",
+            name = "Dream AI (官方代理)",
+            endpointUrl = "https://api.agnes-ai.cn/v1",
+            apiKey = "",
+            authHeader = "Bearer",
+            isDefault = true,
+            description = "官方高可用多模态聚合通道，支持主流对话、生图、生视频模型"
+        ),
+        AIProvider(
+            id = "openai-official",
+            name = "OpenAI 官方",
+            endpointUrl = "https://api.openai.com/v1",
+            apiKey = "",
+            authHeader = "Bearer",
+            isDefault = false,
+            description = "OpenAI 官方原生接口 (GPT-4o, DALL·E 3, Sora)"
+        ),
+        AIProvider(
+            id = "siliconflow",
+            name = "SiliconFlow 硅基流动",
+            endpointUrl = "https://api.siliconflow.cn/v1",
+            apiKey = "",
+            authHeader = "Bearer",
+            isDefault = false,
+            description = "国内高速低延迟云端算力 (DeepSeek, Flux, Qwen)"
+        ),
+        AIProvider(
+            id = "deepseek-official",
+            name = "DeepSeek 官方",
+            endpointUrl = "https://api.deepseek.com/v1",
+            apiKey = "",
+            authHeader = "Bearer",
+            isDefault = false,
+            description = "DeepSeek 官方直连 API (deepseek-chat, deepseek-reasoner)"
+        )
+    ),
     val rateLimitSeconds: Int = 60, // Strictly 1 request per minute (60s) for Image & Video Generation
     val autoStitchVideos: Boolean = true,
+    val isDarkTheme: Boolean = true,
     val customAuthHeader: String = "Bearer"
 )
 

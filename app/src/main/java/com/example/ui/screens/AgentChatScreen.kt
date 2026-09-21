@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,6 +56,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,11 +75,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.filled.Extension
 import coil.compose.AsyncImage
 import com.example.data.model.ChatMessage
 import com.example.ui.components.MarkdownText
 import com.example.data.model.ChatIntentMode
+import com.example.data.skill.InvocationStatus
 import com.example.ui.components.ActiveSkillExecutingBanner
 import com.example.ui.components.AgentDocumentCard
 import com.example.ui.components.AgentLoadedSkillsBar
@@ -115,6 +119,7 @@ fun AgentChatScreen(
     var showImagePicker by remember { mutableStateOf(false) }
     var showHistoryDrawer by remember { mutableStateOf(false) }
     var showSkillManagerSheet by remember { mutableStateOf(false) }
+    var showQuickPrompts by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -145,13 +150,15 @@ fun AgentChatScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Top Rate Limit Banner (Only active for image/video generation)
+            // Top Rate Limit Banner (Auto-hides when idle, slides in smoothly when cooling/queued)
             RateLimitBanner(
                 rateLimitState = rateLimitState,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                autoHideWhenIdle = true,
+                compact = true,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
             )
 
-            // Header (Qwen / DeepSeek Style Header: Left Icon -> History, Center -> Dream AI Title, Right Icon -> New Chat)
+            // Clean Single-Row Header (Plan 1: Minimalist Native Top Bar)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -159,7 +166,7 @@ fun AgentChatScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Top Left: Menu Icon Only to Open History Drawer
+                // Top Left: Menu Icon to Open History Drawer
                 IconButton(
                     onClick = { showHistoryDrawer = true },
                     modifier = Modifier.size(36.dp)
@@ -172,11 +179,13 @@ fun AgentChatScreen(
                     )
                 }
 
-                // Center: App Title (Icon + Dream AI)
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Center: Pure Single-Row Title with AI Status Indicator
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(24.dp)
                             .background(
                                 Brush.linearGradient(listOf(AgnesViolet, AgnesCyan)),
                                 CircleShape
@@ -187,15 +196,21 @@ fun AgentChatScreen(
                             imageVector = Icons.Default.SmartToy,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
                     Text(
                         text = "Dream AI",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(AgnesEmerald, CircleShape)
                     )
                 }
 
@@ -240,277 +255,324 @@ fun AgentChatScreen(
                 }
             }
 
-            // Real-time Active Skill Executing Banner
-            ActiveSkillExecutingBanner(
-                record = currentExecutingSkill
-            )
-
-            // Loaded Skills Bar
-            AgentLoadedSkillsBar(
-                skills = skills,
-                onOpenSkillHub = { showSkillManagerSheet = true },
-                onSkillClick = { _ -> showSkillManagerSheet = true },
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
-            )
-
-        // Mode Switcher Chips (Auto, Chat, Image, Video)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            val modes = listOf(
-                Triple(ChatIntentMode.AUTO, "🌟 智能识别", Color(0xFF8B5CF6)),
-                Triple(ChatIntentMode.CHAT, "💬 快速对话", AgnesEmerald),
-                Triple(ChatIntentMode.IMAGE_GEN, "🎨 智能生图", AgnesVioletLight),
-                Triple(ChatIntentMode.VIDEO_GEN, "🎬 分镜生视频", AgnesCyan)
-            )
-
-            modes.forEach { (mode, label, color) ->
-                val isSelected = currentIntentMode == mode
-                Surface(
-                    onClick = { viewModel.setChatIntentMode(mode) },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected) color.copy(alpha = 0.25f) else Color(0xFF161E31),
-                    border = androidx.compose.foundation.BorderStroke(
-                        if (isSelected) 1.5.dp else 1.dp,
-                        if (isSelected) color else CyberCardBorder
-                    )
-                ) {
-                    Text(
-                        text = label,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) color else Color(0xFF94A3B8),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            // Chat Messages List
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(chatMessages, key = { it.id }) { message ->
+                    val relatedProject = message.relatedProjectId?.let { id -> projects.find { it.id == id } }
+                    ChatMessageItem(
+                        message = message,
+                        project = relatedProject,
+                        onOpenVideoStudio = onNavigateToVideo,
+                        onOpenImageStudio = {
+                            if (relatedProject != null) {
+                                viewModel.selectProject(relatedProject)
+                            }
+                            onNavigateToImage()
+                        },
+                        onSaveImage = {
+                            val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
+                            viewModel.saveImageToGallery(imgUri, relatedProject?.prompt ?: message.content)
+                        },
+                        onShareImage = {
+                            val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
+                            viewModel.shareMedia(imgUri, isVideo = false)
+                        },
+                        onOpenDocument = { uri, type ->
+                            viewModel.openDocument(uri, type)
+                        },
+                        onShareDocument = { uri, name, type ->
+                            viewModel.shareDocument(uri, name, type)
+                        },
+                        onSaveDocument = { uri, name, type ->
+                            viewModel.saveDocumentToDownloads(uri, name, type)
+                        }
                     )
                 }
-            }
-        }
 
-        // Chat Messages List
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(chatMessages, key = { it.id }) { message ->
-                val relatedProject = message.relatedProjectId?.let { id -> projects.find { it.id == id } }
-                ChatMessageItem(
-                    message = message,
-                    project = relatedProject,
-                    onOpenVideoStudio = onNavigateToVideo,
-                    onOpenImageStudio = {
-                        if (relatedProject != null) {
-                            viewModel.selectProject(relatedProject)
-                        }
-                        onNavigateToImage()
-                    },
-                    onSaveImage = {
-                        val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
-                        viewModel.saveImageToGallery(imgUri, relatedProject?.prompt ?: message.content)
-                    },
-                    onShareImage = {
-                        val imgUri = relatedProject?.resultImageUri ?: message.attachedImageUri
-                        viewModel.shareMedia(imgUri, isVideo = false)
-                    },
-                    onOpenDocument = { uri, type ->
-                        viewModel.openDocument(uri, type)
-                    },
-                    onShareDocument = { uri, name, type ->
-                        viewModel.shareDocument(uri, name, type)
-                    },
-                    onSaveDocument = { uri, name, type ->
-                        viewModel.saveDocumentToDownloads(uri, name, type)
+                // Streaming Execution Status Banner (Displayed seamlessly at bottom of conversation)
+                if (currentExecutingSkill != null && currentExecutingSkill?.status == InvocationStatus.EXECUTING) {
+                    item {
+                        ActiveSkillExecutingBanner(
+                            record = currentExecutingSkill,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                )
+                } else if (isGenerating) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF161E31), RoundedCornerShape(8.dp))
+                                .border(1.dp, AgnesCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = AgnesCyan,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (progressMessage.isNotBlank()) progressMessage else "Dream AI 正在思考并执行调度...",
+                                fontSize = 11.sp,
+                                color = AgnesCyan,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
             }
 
-            if (isGenerating) {
-                item {
+        // Quick Prompt Chips (Only shown when conversation is empty OR when user taps the magic wand button)
+        AnimatedVisibility(
+            visible = (chatMessages.isEmpty() || showQuickPrompts) && !isGenerating
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                if (chatMessages.isNotEmpty()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF161E31), RoundedCornerShape(8.dp))
-                            .border(1.dp, AgnesCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                            .padding(10.dp),
+                            .padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = AgnesCyan,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (progressMessage.isNotBlank()) progressMessage else "Agnes 正在调用专属模型并执行调度...",
+                            text = "💡 快捷指令与灵感提示词",
                             fontSize = 11.sp,
-                            color = AgnesCyan,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Bold,
+                            color = AgnesCyan
                         )
+                        IconButton(
+                            onClick = { showQuickPrompts = false },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+                }
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(quickPrompts) { prompt ->
+                        Surface(
+                            onClick = {
+                                inputText = prompt.substringAfter(" ")
+                                showQuickPrompts = false
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF161E31),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
+                        ) {
+                            Text(
+                                text = prompt,
+                                fontSize = 10.sp,
+                                color = Color(0xFFCBD5E1),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Quick Prompt Chips
-        LazyRow(
+        // Modern Integrated Pill Input Bar (Plan A: ChatGPT-style all-in-one capsule)
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .border(
+                    width = 1.dp,
+                    brush = if (inputText.isNotBlank()) Brush.horizontalGradient(listOf(AgnesViolet, AgnesCyan)) else Brush.linearGradient(listOf(CyberCardBorder, CyberCardBorder)),
+                    shape = RoundedCornerShape(26.dp)
+                )
+                .testTag("chat_input_pill_container"),
+            color = Color(0xFF111726),
+            tonalElevation = 2.dp
         ) {
-            items(quickPrompts) { prompt ->
-                Surface(
-                    onClick = {
-                        inputText = prompt.substringAfter(" ")
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF161E31),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberCardBorder)
-                ) {
-                    Text(
-                        text = prompt,
-                        fontSize = 10.sp,
-                        color = Color(0xFFCBD5E1),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                    )
-                }
-            }
-        }
-
-        // Attached Image Preview if selected
-        AnimatedVisibility(visible = selectedImageUri != null) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 3.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF161E31))
-                        .border(1.dp, AgnesCyan, RoundedCornerShape(6.dp))
-                ) {
-                    AsyncImage(
-                        model = selectedImageUri,
-                        contentDescription = "Attached",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "已附加参考图片",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AgnesCyan
-                    )
-                    Text(
-                        text = "将作为图像重绘基底或分镜视频故事线索",
-                        fontSize = 9.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                }
-                IconButton(
-                    onClick = { selectedImageUri = null },
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Remove",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-        }
-
-        // Input Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = { showImagePicker = true },
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(0xFF161E31), CircleShape)
-                    .border(1.dp, CyberCardBorder, CircleShape)
-                    .testTag("attach_image_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AddPhotoAlternate,
-                    contentDescription = "Attach Image",
-                    tint = AgnesCyan,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            val placeholderHint = when (currentIntentMode) {
-                ChatIntentMode.CHAT -> "输入问题与对话模型探讨交流（高速不排队）..."
-                ChatIntentMode.IMAGE_GEN -> "输入画图描述或附加图片进行变奏重绘..."
-                ChatIntentMode.VIDEO_GEN -> "输入视频主题，自动规划4段分镜并拼接..."
-                ChatIntentMode.AUTO -> "自由提问、输入生图指令或构思视频短片..."
-            }
-
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = { inputText = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("chat_input_field"),
-                placeholder = {
-                    Text(placeholderHint, fontSize = 11.sp, color = Color(0xFF64748B))
-                },
-                maxLines = 3,
-                shape = RoundedCornerShape(20.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = AgnesViolet,
-                    unfocusedBorderColor = CyberCardBorder,
-                    focusedContainerColor = CyberCardBg,
-                    unfocusedContainerColor = CyberCardBg,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White
-                )
-            )
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            IconButton(
-                onClick = {
-                    if (inputText.isNotBlank() || selectedImageUri != null) {
-                        viewModel.sendUserMessage(inputText, selectedImageUri)
-                        inputText = ""
-                        selectedImageUri = null
+                // Attached Image Micro-Preview (Docked tightly inside the pill if present)
+                AnimatedVisibility(visible = selectedImageUri != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF161E31))
+                                .border(1.dp, AgnesCyan, RoundedCornerShape(6.dp))
+                        ) {
+                            AsyncImage(
+                                model = selectedImageUri,
+                                contentDescription = "Attached",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "已附加参考图片",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AgnesCyan
+                            )
+                            Text(
+                                text = "将作为图生图重绘或分镜视频故事底模",
+                                fontSize = 8.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                        IconButton(
+                            onClick = { selectedImageUri = null },
+                            modifier = Modifier.size(22.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove Image",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
                     }
-                },
-                enabled = (inputText.isNotBlank() || selectedImageUri != null) && !isGenerating,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(
-                        if (inputText.isNotBlank() || selectedImageUri != null) AgnesViolet else Color(0xFF334155),
-                        CircleShape
-                    )
-                    .testTag("send_message_button")
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
+                }
+
+                // Core Input Row: [ 📎 Image ] + [ 🪄 Prompts ] + [ BasicTextField ] + [ 🚀 Send ]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left Inset Action 1: Add Image
+                    IconButton(
+                        onClick = { showImagePicker = true },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .testTag("attach_image_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = "Attach Image",
+                            tint = if (selectedImageUri != null) AgnesCyan else Color(0xFF94A3B8),
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    // Left Inset Action 2: Inspiration / Quick Prompts toggle
+                    IconButton(
+                        onClick = { showQuickPrompts = !showQuickPrompts },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .testTag("quick_prompts_toggle")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Quick Prompts",
+                            tint = if (showQuickPrompts) AgnesAmber else Color(0xFF64748B),
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    val placeholderHint = when (currentIntentMode) {
+                        ChatIntentMode.CHAT -> "探讨交流（高速不排队）..."
+                        ChatIntentMode.IMAGE_GEN -> "输入生图描述或参考图变奏..."
+                        ChatIntentMode.VIDEO_GEN -> "输入视频构思，自动规划4段分镜..."
+                        ChatIntentMode.AUTO -> "向 Dream AI 提问或调度技能..."
+                    }
+
+                    // Flexible Center Text Input Field
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (inputText.isEmpty()) {
+                            Text(
+                                text = placeholderHint,
+                                fontSize = 12.sp,
+                                color = Color(0xFF64748B),
+                                maxLines = 1
+                            )
+                        }
+                        BasicTextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("chat_input_field"),
+                            textStyle = TextStyle(
+                                fontSize = 13.sp,
+                                color = Color.White
+                            ),
+                            cursorBrush = SolidColor(AgnesCyan),
+                            maxLines = 4
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Right Inset Action: Send Pill Button
+                    val canSend = (inputText.isNotBlank() || selectedImageUri != null) && !isGenerating
+                    IconButton(
+                        onClick = {
+                            if (canSend) {
+                                viewModel.sendUserMessage(inputText, selectedImageUri)
+                                inputText = ""
+                                selectedImageUri = null
+                                showQuickPrompts = false
+                            }
+                        },
+                        enabled = canSend,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(
+                                brush = if (canSend) {
+                                    Brush.linearGradient(listOf(AgnesViolet, AgnesCyan))
+                                } else {
+                                    Brush.linearGradient(listOf(Color(0xFF1E293B), Color(0xFF1E293B)))
+                                },
+                                shape = CircleShape
+                            )
+                            .testTag("send_message_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = if (canSend) Color.White else Color(0xFF475569),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
         }
     }

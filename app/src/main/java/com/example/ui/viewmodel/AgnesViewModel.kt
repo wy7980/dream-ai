@@ -8,6 +8,7 @@ import androidx.room.Room
 import com.example.data.api.AgnesClient
 import com.example.data.api.RateLimitManager
 import com.example.data.local.AppDatabase
+import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
 import com.example.data.model.GenerationProject
@@ -125,12 +126,82 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun fetchModelsForProvider(provider: AIProvider, onResult: (Boolean, List<String>, String) -> Unit = { _, _, _ -> }) {
+        viewModelScope.launch {
+            _isFetchingModels.value = true
+            val result = repository.fetchModelsForProvider(provider)
+            _isFetchingModels.value = false
+            if (result.isSuccess) {
+                val list = result.getOrThrow()
+                // Update the provider in the config with newly fetched custom models
+                val updatedProviders = config.value.providers.map {
+                    if (it.id == provider.id) it.copy(customModels = list) else it
+                }
+                updateConfig(config.value.copy(providers = updatedProviders))
+                _availableModels.value = list
+                onResult(true, list, "成功拉取到 ${list.size} 个模型")
+            } else {
+                val fallbackList = provider.customModels.ifEmpty { _availableModels.value }
+                onResult(false, fallbackList, result.exceptionOrNull()?.message ?: "拉取失败")
+            }
+        }
+    }
+
+    fun testProviderConnection(provider: AIProvider, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _progressMessage.value = "正在测试连接 ${provider.name}..."
+            val result = repository.testProviderConnection(provider)
+            if (result.isSuccess) {
+                onResult(true, result.getOrNull() ?: "连接成功")
+            } else {
+                onResult(false, result.exceptionOrNull()?.message ?: "连接失败")
+            }
+            _progressMessage.value = ""
+        }
+    }
+
+    fun addOrUpdateProvider(provider: AIProvider) {
+        val currentList = config.value.providers.toMutableList()
+        val index = currentList.indexOfFirst { it.id == provider.id }
+        if (index != -1) {
+            currentList[index] = provider
+        } else {
+            currentList.add(provider)
+        }
+        val updated = config.value.copy(providers = currentList)
+        updateConfig(updated)
+        _toastMessage.value = "已保存 Provider: ${provider.name}"
+    }
+
+    fun deleteProvider(providerId: String) {
+        if (config.value.providers.size <= 1) {
+            _toastMessage.value = "至少保留一个 Provider 渠道"
+            return
+        }
+        val currentList = config.value.providers.filter { it.id != providerId }
+        val fallbackId = currentList.first().id
+        val updated = config.value.copy(
+            providers = currentList,
+            chatProviderId = if (config.value.chatProviderId == providerId) fallbackId else config.value.chatProviderId,
+            imageProviderId = if (config.value.imageProviderId == providerId) fallbackId else config.value.imageProviderId,
+            videoProviderId = if (config.value.videoProviderId == providerId) fallbackId else config.value.videoProviderId
+        )
+        updateConfig(updated)
+        _toastMessage.value = "Provider 已移除"
+    }
+
     fun clearToast() {
         _toastMessage.value = null
     }
 
     fun showToast(msg: String) {
         _toastMessage.value = msg
+    }
+
+    fun toggleTheme(isDark: Boolean) {
+        val updated = config.value.copy(isDarkTheme = isDark)
+        repository.saveConfig(updated)
+        _toastMessage.value = if (isDark) "已切换为暗黑模式" else "已切换为明亮模式"
     }
 
     fun updateConfig(newConfig: AgnesApiConfig) {

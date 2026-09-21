@@ -15,6 +15,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.net.Uri
+import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
 import com.example.data.model.SceneClip
@@ -74,10 +75,25 @@ class AgnesClient(
     )
 
     /**
-     * Fetch available model list from API Base URL (/models endpoint)
+     * Resolve effective provider configuration for a specific task
      */
-    suspend fun fetchAvailableModels(config: AgnesApiConfig): Result<List<String>> = withContext(Dispatchers.IO) {
-        var base = config.endpointUrl.trim().removeSuffix("/")
+    fun resolveProvider(config: AgnesApiConfig, providerId: String): AIProvider {
+        return config.providers.find { it.id == providerId }
+            ?: config.providers.firstOrNull { it.isDefault }
+            ?: AIProvider(
+                id = "agnes-default",
+                name = "Dream AI",
+                endpointUrl = config.endpointUrl,
+                apiKey = config.apiKey,
+                authHeader = config.customAuthHeader
+            )
+    }
+
+    /**
+     * Fetch available model list from a specific provider
+     */
+    suspend fun fetchAvailableModelsForProvider(provider: AIProvider): Result<List<String>> = withContext(Dispatchers.IO) {
+        var base = provider.endpointUrl.trim().removeSuffix("/")
         if (base.isBlank()) {
             base = "https://api.agnes-ai.cn/v1"
         }
@@ -89,9 +105,9 @@ class AgnesClient(
                 .url(endpoint)
                 .header("Content-Type", "application/json")
 
-            if (config.apiKey.isNotBlank()) {
-                val headerName = config.customAuthHeader.trim().ifBlank { "Bearer" }
-                reqBuilder.header("Authorization", "$headerName ${config.apiKey.trim()}")
+            if (provider.apiKey.isNotBlank()) {
+                val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
+                reqBuilder.header("Authorization", "$headerName ${provider.apiKey.trim()}")
             }
 
             val response = okHttpClient.newCall(reqBuilder.build()).execute()
@@ -144,6 +160,14 @@ class AgnesClient(
     }
 
     /**
+     * Fetch available model list from API Base URL (/models endpoint)
+     */
+    suspend fun fetchAvailableModels(config: AgnesApiConfig): Result<List<String>> = withContext(Dispatchers.IO) {
+        val defaultProvider = resolveProvider(config, config.chatProviderId)
+        fetchAvailableModelsForProvider(defaultProvider)
+    }
+
+    /**
      * High-speed Chat Model Completion
      * Chat models have higher rate limits (does NOT block on 60s Image/Video queue)
      */
@@ -153,8 +177,10 @@ class AgnesClient(
         userPrompt: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            if (config.apiKey.isNotBlank()) {
-                val endpoint = "${config.endpointUrl.removeSuffix("/")}/chat/completions"
+            val provider = resolveProvider(config, config.chatProviderId)
+            if (provider.apiKey.isNotBlank()) {
+                val base = provider.endpointUrl.trim().removeSuffix("/")
+                val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
                 val systemPrompt = """
                     You are Dream AI Agent (Dream AI 智能助手), an expert in AI multimodal creation (text conversation, image generation/remix, and multi-scene cinematic video generation).
                     Respond helpfully, politely, creatively, and concisely in Chinese (or matching the user's language).
@@ -178,9 +204,10 @@ class AgnesClient(
                     put("temperature", 0.7)
                 }
 
+                val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
                 val request = Request.Builder()
                     .url(endpoint)
-                    .header("Authorization", "${config.customAuthHeader} ${config.apiKey}")
+                    .header("Authorization", "$headerName ${provider.apiKey.trim()}")
                     .header("Content-Type", "application/json")
                     .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                     .build()
@@ -224,19 +251,23 @@ class AgnesClient(
     }
 
     /**
-     * Test connection to Dream AI API
+     * Test connection for a specific AI Provider
      */
-    suspend fun testConnection(config: AgnesApiConfig): Result<String> = withContext(Dispatchers.IO) {
-        if (config.apiKey.isBlank()) {
-            return@withContext Result.failure(Exception("请先填写 Dream AI API 密钥"))
+    suspend fun testProviderConnection(provider: AIProvider): Result<String> = withContext(Dispatchers.IO) {
+        if (provider.apiKey.isBlank()) {
+            return@withContext Result.failure(Exception("请先填写 ${provider.name} 的 API 密钥"))
         }
 
         try {
             val startTime = System.currentTimeMillis()
-            // Make a ping/model check call
+            var base = provider.endpointUrl.trim().removeSuffix("/")
+            if (base.isBlank()) base = "https://api.agnes-ai.cn/v1"
+            val endpoint = if (base.endsWith("/v1")) "$base/models" else "$base/v1/models"
+
+            val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
             val request = Request.Builder()
-                .url("${config.endpointUrl.removeSuffix("/")}/models")
-                .header("Authorization", "${config.customAuthHeader} ${config.apiKey}")
+                .url(endpoint)
+                .header("Authorization", "$headerName ${provider.apiKey.trim()}")
                 .header("Content-Type", "application/json")
                 .get()
                 .build()
@@ -244,18 +275,25 @@ class AgnesClient(
             val response = okHttpClient.newCall(request).execute()
             val latency = System.currentTimeMillis() - startTime
             if (response.isSuccessful || response.code in listOf(200, 404, 400)) {
-                Result.success("Dream AI API 连接成功！响应延迟: ${latency}ms")
+                Result.success("${provider.name} 连接成功！响应延迟: ${latency}ms")
             } else if (response.code == 429) {
                 Result.failure(Exception("API 提示限速 (429 Too Many Requests)，请等待冷却后重试"))
             } else if (response.code == 401 || response.code == 403) {
-                Result.failure(Exception("API 鉴权失败 (状态码: ${response.code})，请检查 API Key"))
+                Result.failure(Exception("API 鉴权失败 (状态码: ${response.code})，请检查 ${provider.name} API Key"))
             } else {
-                Result.success("API 端点已响应 (HTTP ${response.code})，网络畅通")
+                Result.success("${provider.name} 端点已响应 (HTTP ${response.code})，网络畅通")
             }
         } catch (e: Exception) {
-            // If offline or custom endpoint, return descriptive error but don't crash
             Result.failure(Exception("连接失败: ${e.localizedMessage ?: "网络超时"}"))
         }
+    }
+
+    /**
+     * Test connection to Dream AI API (Default Provider)
+     */
+    suspend fun testConnection(config: AgnesApiConfig): Result<String> = withContext(Dispatchers.IO) {
+        val provider = resolveProvider(config, config.chatProviderId)
+        testProviderConnection(provider)
     }
 
     /**
@@ -271,9 +309,10 @@ class AgnesClient(
     ): Result<String> = withContext(Dispatchers.IO) {
         rateLimitManager.executeRateLimited("Agnes 图像生成与重绘") {
             try {
-                // If API Key is present, attempt live HTTP call to Agnes / OpenAI-compatible endpoint
-                if (config.apiKey.isNotBlank()) {
-                    val endpoint = "${config.endpointUrl.removeSuffix("/")}/images/generations"
+                val provider = resolveProvider(config, config.imageProviderId)
+                if (provider.apiKey.isNotBlank()) {
+                    val base = provider.endpointUrl.trim().removeSuffix("/")
+                    val endpoint = if (base.endsWith("/v1")) "$base/images/generations" else "$base/v1/images/generations"
                     val requestJson = JSONObject().apply {
                         put("prompt", "$prompt, in style of $stylePreset, high quality, 8k resolution, cinematic lighting, aspect ratio $aspectRatio")
                         put("model", config.modelName)
@@ -281,9 +320,10 @@ class AgnesClient(
                         put("size", if (aspectRatio == "16:9") "1024x576" else "1024x1024")
                     }
 
+                    val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
                     val request = Request.Builder()
                         .url(endpoint)
-                        .header("Authorization", "${config.customAuthHeader} ${config.apiKey}")
+                        .header("Authorization", "$headerName ${provider.apiKey.trim()}")
                         .header("Content-Type", "application/json")
                         .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                         .build()
@@ -326,8 +366,10 @@ class AgnesClient(
     ): Result<List<SceneClip>> = withContext(Dispatchers.IO) {
         rateLimitManager.executeRateLimited("Agnes 分镜脚本智能规划") {
             try {
-                if (config.apiKey.isNotBlank()) {
-                    val endpoint = "${config.endpointUrl.removeSuffix("/")}/chat/completions"
+                val provider = resolveProvider(config, config.chatProviderId)
+                if (provider.apiKey.isNotBlank()) {
+                    val base = provider.endpointUrl.trim().removeSuffix("/")
+                    val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
                     val systemPrompt = """
                         You are Dream AI Film Director. Create a $sceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
                         Return strict JSON format with an array named "scenes" with objects having:
@@ -350,9 +392,10 @@ class AgnesClient(
                         put("temperature", 0.7)
                     }
 
+                    val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
                     val request = Request.Builder()
                         .url(endpoint)
-                        .header("Authorization", "${config.customAuthHeader} ${config.apiKey}")
+                        .header("Authorization", "$headerName ${provider.apiKey.trim()}")
                         .header("Content-Type", "application/json")
                         .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                         .build()
@@ -397,8 +440,9 @@ class AgnesClient(
     ): Result<String> = withContext(Dispatchers.IO) {
         rateLimitManager.executeRateLimited("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}]") {
             try {
-                if (config.apiKey.isNotBlank()) {
-                    var base = config.endpointUrl.trim().removeSuffix("/")
+                val provider = resolveProvider(config, config.videoProviderId)
+                if (provider.apiKey.isNotBlank()) {
+                    var base = provider.endpointUrl.trim().removeSuffix("/")
                     if (base.isBlank()) {
                         base = "https://api.agnes-ai.cn/v1"
                     }
@@ -426,10 +470,10 @@ class AgnesClient(
                         put("frame_rate", 24)
                     }
 
-                    val headerName = config.customAuthHeader.trim().ifBlank { "Bearer" }
+                    val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
                     val request = Request.Builder()
                         .url(endpoint)
-                        .header("Authorization", "$headerName ${config.apiKey.trim()}")
+                        .header("Authorization", "$headerName ${provider.apiKey.trim()}")
                         .header("Content-Type", "application/json")
                         .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                         .build()

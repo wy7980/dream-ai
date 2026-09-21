@@ -1,4 +1,21 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+
+fun generateVersionName(): String {
+  val sdf = SimpleDateFormat("yyMMdd-HHmm", Locale.getDefault())
+  sdf.timeZone = TimeZone.getTimeZone("Asia/Shanghai")
+  return "1.${sdf.format(Date())}"
+}
+
+fun generateVersionCode(): Int {
+  // Generates unique, strictly increasing integer: minutes since epoch base (fits easily within 32-bit Int)
+  val baseEpoch = 1704067200000L // 2024-01-01
+  val minutesSinceBase = ((System.currentTimeMillis() - baseEpoch) / (1000 * 60)).toInt()
+  return minutesSinceBase.coerceAtLeast(100)
+}
 
 plugins {
   alias(libs.plugins.android.application)
@@ -17,8 +34,8 @@ android {
     applicationId = "com.aistudio.agnesstudio.qzwvyk"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = generateVersionCode()
+    versionName = generateVersionName()
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
