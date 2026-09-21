@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.Button
@@ -97,6 +98,7 @@ fun VideoPipelineScreen(
     val videoProgressMessage by viewModel.videoProgressMessage.collectAsState()
     val selectedProject by viewModel.selectedProject.collectAsState()
     val selectedClips by viewModel.selectedProjectClips.collectAsState()
+    val rerunningClipId by viewModel.rerunningClipId.collectAsState()
 
     var themePrompt by remember {
         mutableStateOf(
@@ -515,7 +517,15 @@ fun VideoPipelineScreen(
             }
 
             items(selectedClips, key = { it.id }) { clip ->
-                SceneCard(clip = clip)
+                SceneCard(
+                    clip = clip,
+                    isRerunning = rerunningClipId == clip.id,
+                    onRerun = {
+                        activeVideoProject?.let { proj ->
+                            viewModel.rerunSceneClip(proj.id, clip.id)
+                        }
+                    }
+                )
             }
         }
 

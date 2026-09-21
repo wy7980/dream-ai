@@ -401,6 +401,146 @@ class AgnesRepository(
         }
     }
 
+    /**
+     * Re-run (re-generate) a SINGLE scene clip, regardless of whether it previously
+     * succeeded or failed, then re-stitch the project master video.
+     *
+     * Design notes:
+     * - The clip row (same [SceneClip.id]) is reset to GENERATING_CLIPS and its old
+     *   result (videoUrl / taskId / error) is cleared so the UI shows a fresh run.
+     * - The call is serialized by [RateLimitManager] (1 request / cooldown window), so it
+     *   can safely run alongside the full pipeline without racing other API calls.
+     * - Only clips that have a usable local/remote source are passed to the stitcher; a
+     *   failed scene is never allowed to corrupt the master video.
+     *
+     * @return Result.success with the refreshed [SceneClip] on success, or
+     *         Result.failure when generation fails (clip row is marked FAILED in both cases).
+     */
+    suspend fun rerunSceneClip(
+        projectId: String,
+        clipId: String,
+        onProgress: (String) -> Unit = {}
+    ): Result<SceneClip> {
+        val project = database.projectDao().getProjectDirect(projectId)
+            ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
+        val clip = database.sceneClipDao().getClipByIdDirect(clipId)
+            ?: return Result.failure(IllegalStateException("分镜不存在或已被删除"))
+
+        val config = _configFlow.value
+        val effectiveModel = config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
+        val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
+        val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
+        val durationSeconds = if (clip.durationSeconds > 0) clip.durationSeconds else 5
+
+        // Reset the clip to a clean generating state (works for COMPLETED or FAILED clips alike).
+        val resetClip = clip.copy(
+            status = GenerationStatus.GENERATING_CLIPS,
+            videoUrl = null,
+            previewThumbnailUrl = null,
+            taskId = null,
+            error = null,
+            statusMessage = "已触发单分镜重跑，准备重新提交..."
+        )
+        database.sceneClipDao().updateClip(resetClip)
+        onProgress("正在重跑分镜 ${clip.sceneNumber}: ${clip.sceneTitle} (模型: $effectiveModel)...")
+
+        val genResult = agnesClient.generateSceneVideoClip(
+            config = config,
+            scene = resetClip,
+            projectId = projectId,
+            stylePreset = stylePreset,
+            sourceImageUri = project.sourceImageUri,
+            modelOverride = effectiveModel,
+            aspectRatio = aspectRatio,
+            durationSeconds = durationSeconds,
+            onTaskIdReceived = { taskId ->
+                val withTask = resetClip.copy(
+                    taskId = taskId,
+                    statusMessage = "已接收 Task ID: $taskId，等待服务端渲染..."
+                )
+                database.sceneClipDao().updateClip(withTask)
+            },
+            onStatusUpdate = { statusMsg ->
+                onProgress(statusMsg)
+                val current = database.sceneClipDao().getClipByIdDirect(clipId) ?: resetClip
+                database.sceneClipDao().updateClip(current.copy(statusMessage = statusMsg))
+            }
+        )
+
+        if (genResult.isFailure) {
+            val errReason = genResult.exceptionOrNull()?.message ?: "未知异常"
+            val current = database.sceneClipDao().getClipByIdDirect(clipId) ?: resetClip
+            val failedClip = current.copy(
+                status = GenerationStatus.FAILED,
+                statusMessage = "重跑失败: $errReason",
+                error = errReason
+            )
+            database.sceneClipDao().updateClip(failedClip)
+            reStitchProjectIfPossible(project, onProgress)
+            return Result.failure(genResult.exceptionOrNull() ?: Exception("重跑失败"))
+        }
+
+        val clipRes = genResult.getOrThrow()
+        val finalUrl = clipRes.videoUrl ?: ""
+        val updatedClip = resetClip.copy(
+            videoUrl = finalUrl,
+            previewThumbnailUrl = finalUrl,
+            taskId = clipRes.taskId ?: resetClip.taskId,
+            statusMessage = clipRes.statusMessage,
+            status = GenerationStatus.COMPLETED,
+            error = null
+        )
+        database.sceneClipDao().updateClip(updatedClip)
+        reStitchProjectIfPossible(project, onProgress)
+        return Result.success(updatedClip)
+    }
+
+    /**
+     * Rebuild the master stitched video from the clips that are currently COMPLETED.
+     * Silently no-ops when there is nothing usable to stitch so a single re-run never
+     * destroys a previously good master video.
+     */
+    private suspend fun reStitchProjectIfPossible(
+        project: GenerationProject,
+        onProgress: (String) -> Unit
+    ) {
+        if (!_configFlow.value.autoStitchVideos) return
+
+        val allClips = database.sceneClipDao().getClipsForProjectDirect(project.id)
+        val completed = allClips
+            .filter { it.status == GenerationStatus.COMPLETED && !it.videoUrl.isNullOrBlank() }
+            .sortedBy { it.sceneNumber }
+        if (completed.isEmpty()) return
+
+        val completedCount = completed.size
+        onProgress("正在用 $completedCount 段已完成分镜重新拼接长视频...")
+        database.projectDao().updateProject(
+            project.copy(
+                completedClips = completedCount,
+                status = GenerationStatus.STITCHING,
+                statusMessage = "正在重新拼接所有已完成视频片段..."
+            )
+        )
+
+        val stitchResult = agnesClient.stitchVideoClips(
+            projectId = project.id,
+            projectTitle = project.title,
+            clips = completed
+        )
+        val finalVideoPath = stitchResult.getOrNull() ?: completed.firstOrNull()?.videoUrl
+        val finalDuration = completed.sumOf { it.durationSeconds }
+
+        database.projectDao().updateProject(
+            project.copy(
+                resultVideoUri = finalVideoPath,
+                durationSeconds = finalDuration,
+                completedClips = completedCount,
+                status = GenerationStatus.COMPLETED,
+                statusMessage = "已完成 $completedCount/${allClips.size} 段分镜，长视频已重新拼接"
+            )
+        )
+    }
+
     suspend fun sendChatMessage(userText: String, attachedImageUri: String? = null): ChatMessage {
         val userMsg = ChatMessage(
             sender = "user",

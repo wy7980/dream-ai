@@ -96,6 +96,10 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
 
     private var chatJob: kotlinx.coroutines.Job? = null
     private var videoJob: kotlinx.coroutines.Job? = null
+    private var rerunJob: kotlinx.coroutines.Job? = null
+
+    private val _rerunningClipId = MutableStateFlow<String?>(null)
+    val rerunningClipId: StateFlow<String?> = _rerunningClipId.asStateFlow()
 
     fun cancelChatTask() {
         if (chatJob?.isActive == true) {
@@ -340,6 +344,42 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _isVideoGenerating.value = false
                 _videoProgressMessage.value = ""
+            }
+        }
+    }
+
+    /**
+     * Re-run a SINGLE scene clip (works for both COMPLETED and FAILED clips) and refresh
+     * the project's master video afterwards.
+     */
+    fun rerunSceneClip(projectId: String, clipId: String) {
+        if (_rerunningClipId.value != null) {
+            _toastMessage.value = "已有分镜正在重跑，请稍候..."
+            return
+        }
+        rerunJob = viewModelScope.launch {
+            _rerunningClipId.value = clipId
+            _videoProgressMessage.value = "正在重跑单个分镜..."
+            try {
+                val result = repository.rerunSceneClip(
+                    projectId = projectId,
+                    clipId = clipId,
+                    onProgress = { msg -> _videoProgressMessage.value = msg }
+                )
+                if (result.isSuccess) {
+                    _toastMessage.value = "分镜重跑成功，长视频已更新！"
+                } else {
+                    _toastMessage.value = "分镜重跑失败: ${result.exceptionOrNull()?.message}"
+                }
+            } finally {
+                _rerunningClipId.value = null
+                _videoProgressMessage.value = ""
+                // Refresh the selected project snapshot so the player reflects the new master video.
+                _selectedProject.value?.let { current ->
+                    repository.getProjectDirect(current.id)?.let { fresh ->
+                        _selectedProject.value = fresh
+                    }
+                }
             }
         }
     }

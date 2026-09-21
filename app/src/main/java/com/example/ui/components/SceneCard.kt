@@ -58,6 +58,8 @@ import com.example.ui.theme.AppTextSecondary
 fun SceneCard(
     clip: SceneClip,
     onClick: () -> Unit = {},
+    isRerunning: Boolean = false,
+    onRerun: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -331,6 +333,60 @@ fun SceneCard(
                             overflow = TextOverflow.Ellipsis,
                             lineHeight = 12.sp
                         )
+                    }
+                }
+            }
+
+            // Single-scene re-run action. Available for BOTH completed and failed clips
+            // (disabled only while this very clip is actively generating).
+            if (onRerun != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isGenerating = clip.status == GenerationStatus.GENERATING_CLIPS
+                    val enabled = !isRerunning && !isGenerating
+                    val tint = when {
+                        isRerunning || isGenerating -> AgnesAmber
+                        clip.status == GenerationStatus.FAILED -> AgnesRose
+                        else -> AgnesCyan
+                    }
+                    Surface(
+                        onClick = { if (enabled) onRerun() },
+                        enabled = enabled,
+                        shape = RoundedCornerShape(8.dp),
+                        color = tint.copy(alpha = 0.12f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.5f)),
+                        modifier = Modifier.testTag("rerun_scene_${clip.sceneNumber}")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isRerunning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = tint
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    tint = tint,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isRerunning) "重跑中..." else "重跑本分镜",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = tint
+                            )
+                        }
                     }
                 }
             }
