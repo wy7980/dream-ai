@@ -36,6 +36,12 @@ import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+data class VideoClipResult(
+    val videoUrl: String?,
+    val taskId: String?,
+    val statusMessage: String
+)
+
 class AgnesClient(
     private val context: Context,
     private val rateLimitManager: RateLimitManager
@@ -431,15 +437,17 @@ class AgnesClient(
 
     /**
      * Step 2: Generate single video clip for a scene
-     * Respects the strict 1-minute rate limit
+     * Respects the strict 1-minute rate limit and returns detailed Task ID / Status
      */
     suspend fun generateSceneVideoClip(
         config: AgnesApiConfig,
         scene: SceneClip,
         projectId: String,
         stylePreset: String,
-        sourceImageUri: String? = null
-    ): Result<String> = withContext(Dispatchers.IO) {
+        sourceImageUri: String? = null,
+        onTaskIdReceived: suspend (String) -> Unit = {},
+        onStatusUpdate: suspend (String) -> Unit = {}
+    ): Result<VideoClipResult> = withContext(Dispatchers.IO) {
         rateLimitManager.executeRateLimited("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}]") {
             try {
                 val provider = resolveProvider(config, config.videoProviderId)
@@ -480,36 +488,71 @@ class AgnesClient(
                         .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
                         .build()
 
+                    onStatusUpdate("已向接口提交创建请求 [$modelName]...")
                     val response = okHttpClient.newCall(request).execute()
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
                         if (body.startsWith("{")) {
                             val json = JSONObject(body)
                             var videoUrl = extractVideoUrlFromJson(json)
-                            if (videoUrl.isNotBlank()) {
-                                return@executeRateLimited Result.success(videoUrl)
-                            }
 
-                            // If video_url is not in immediate response, extract task ID and query task status asynchronously
                             var taskId = json.optString("task_id")
                             if (taskId.isBlank()) taskId = json.optString("id")
                             if (taskId.isBlank()) taskId = json.optString("taskId")
+                            if (taskId.isBlank()) taskId = json.optString("video_id")
                             if (taskId.isBlank()) {
                                 val dataObj = json.optJSONObject("data")
                                 if (dataObj != null) {
-                                    taskId = dataObj.optString("task_id").ifBlank { dataObj.optString("id") }
+                                    taskId = dataObj.optString("task_id")
+                                        .ifBlank { dataObj.optString("id") }
+                                        .ifBlank { dataObj.optString("video_id") }
                                 }
                             }
 
                             if (taskId.isNotBlank()) {
-                                val polledUrl = pollVideoTaskResult(endpoint, taskId, headerName, config.apiKey.trim())
+                                onTaskIdReceived(taskId)
+                                onStatusUpdate("已获取 Task ID: $taskId，排队生成中...")
+                            }
+
+                            if (videoUrl.isNotBlank()) {
+                                onStatusUpdate("生成成功！获取直接视频链接")
+                                return@executeRateLimited Result.success(
+                                    VideoClipResult(
+                                        videoUrl = videoUrl,
+                                        taskId = taskId.ifBlank { null },
+                                        statusMessage = "生成成功！"
+                                    )
+                                )
+                            }
+
+                            if (taskId.isNotBlank()) {
+                                val polledUrl = pollVideoTaskResult(
+                                    baseEndpoint = endpoint,
+                                    taskId = taskId,
+                                    headerName = headerName,
+                                    apiKey = provider.apiKey.trim(),
+                                    onStatusUpdate = onStatusUpdate
+                                )
                                 if (!polledUrl.isNullOrBlank()) {
-                                    return@executeRateLimited Result.success(polledUrl)
+                                    return@executeRateLimited Result.success(
+                                        VideoClipResult(
+                                            videoUrl = polledUrl,
+                                            taskId = taskId,
+                                            statusMessage = "生成成功 [Task ID: $taskId]"
+                                        )
+                                    )
                                 } else {
-                                    return@executeRateLimited Result.failure(Exception("视频生成超时或未获取到有效 URL"))
+                                    return@executeRateLimited Result.failure(
+                                        Exception("任务创建成功 [Task ID: $taskId]，但服务端渲染失败或资源下载解析超时")
+                                    )
                                 }
                             }
                         }
+                    } else {
+                        val errBody = response.body?.string() ?: ""
+                        return@executeRateLimited Result.failure(
+                            Exception("接口创建任务失败 HTTP ${response.code}: ${errBody.take(150)}")
+                        )
                     }
                 }
 
@@ -564,14 +607,16 @@ class AgnesClient(
         baseEndpoint: String,
         taskId: String,
         headerName: String,
-        apiKey: String
+        apiKey: String,
+        onStatusUpdate: suspend (String) -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
         val cleanBase = baseEndpoint.removeSuffix("/")
         val queryUrl = "$cleanBase/$taskId"
 
-        val maxAttempts = 60 // ~240s total polling duration
+        val maxAttempts = 120 // ~10-12 mins polling duration
         for (attempt in 1..maxAttempts) {
-            delay(4000L) // Wait 4s between poll checks
+            onStatusUpdate("Task ID: $taskId 服务端渲染中 (第 $attempt/$maxAttempts 次轮询)...")
+            delay(5000L) // Wait 5s between poll checks
             try {
                 val request = Request.Builder()
                     .url(queryUrl)
@@ -587,6 +632,7 @@ class AgnesClient(
                         val videoUrl = extractVideoUrlFromJson(json)
                         if (videoUrl.isNotBlank()) {
                             Log.i("AgnesClient", "Video task $taskId succeeded! Video URL: $videoUrl")
+                            onStatusUpdate("Task ID: $taskId 生成并解析成功！")
                             return@withContext videoUrl
                         }
 
@@ -595,6 +641,8 @@ class AgnesClient(
                             .lowercase()
 
                         if (status == "failed" || status == "error") {
+                            val msg = json.optString("error_message").ifBlank { json.optString("message") }
+                            onStatusUpdate("服务端渲染失败 [Task ID: $taskId]: ${msg.ifBlank { "生成异常" }}")
                             Log.e("AgnesClient", "Video generation task $taskId failed: $body")
                             return@withContext null
                         }
@@ -604,6 +652,7 @@ class AgnesClient(
                 Log.w("AgnesClient", "Poll attempt $attempt error: ${e.message}")
             }
         }
+        onStatusUpdate("Task ID: $taskId 渲染超时 (超过 10 分钟)")
         Log.e("AgnesClient", "Video generation task $taskId timed out after $maxAttempts attempts")
         return@withContext null
     }

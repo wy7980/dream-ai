@@ -100,11 +100,12 @@ fun MainAppContent(viewModel: AgnesViewModel) {
     var pipelineInitialImage by remember { mutableStateOf<String?>(null) }
     var pipelineInitialPrompt by remember { mutableStateOf<String?>(null) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val toastMessage by viewModel.toastMessage.collectAsState()
 
     LaunchedEffect(toastMessage) {
         toastMessage?.let { msg ->
-            // Clear toast after reading
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
             viewModel.clearToast()
         }
     }

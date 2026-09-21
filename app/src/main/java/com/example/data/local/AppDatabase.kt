@@ -63,6 +63,9 @@ interface SceneClipDao {
     @Query("SELECT * FROM scene_clips WHERE projectId = :projectId ORDER BY sceneNumber ASC")
     suspend fun getClipsForProjectDirect(projectId: String): List<SceneClip>
 
+    @Query("SELECT * FROM scene_clips WHERE id = :id")
+    suspend fun getClipByIdDirect(id: String): SceneClip?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertClips(clips: List<SceneClip>)
 

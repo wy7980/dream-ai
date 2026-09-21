@@ -52,6 +52,8 @@ data class SceneClip(
     val durationSeconds: Int = 10,
     val videoUrl: String? = null,
     val previewThumbnailUrl: String? = null,
+    val taskId: String? = null, // Service provider returned task_id / video_id
+    val statusMessage: String? = null, // Detailed status for debugging
     val status: GenerationStatus = GenerationStatus.IDLE,
     val cooldownRemainingSeconds: Int = 0,
     val error: String? = null

@@ -1,6 +1,13 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +43,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
@@ -116,6 +124,8 @@ fun AgentChatScreen(
     val rateLimitState by viewModel.rateLimitState.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val progressMessage by viewModel.progressMessage.collectAsState()
+    val isVideoGenerating by viewModel.isVideoGenerating.collectAsState()
+    val videoProgressMessage by viewModel.videoProgressMessage.collectAsState()
     val currentConfig by viewModel.config.collectAsState()
     val currentIntentMode by viewModel.chatIntentMode.collectAsState()
     val skills by viewModel.skills.collectAsState()
@@ -164,6 +174,85 @@ fun AgentChatScreen(
                 compact = true,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
             )
+
+            // Background Video Pipeline Banner
+            AnimatedVisibility(
+                visible = isVideoGenerating,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Surface(
+                    onClick = onNavigateToVideo,
+                    color = AgnesViolet.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, AgnesViolet.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = AgnesVioletLight
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🎬 视频后台渲染中 (点击查看进度)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AgnesVioletLight
+                            )
+                            Text(
+                                text = videoProgressMessage.ifBlank { "正在生成分镜与离线拉流..." },
+                                fontSize = 10.sp,
+                                color = AppTextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            onClick = { viewModel.cancelVideoTask() },
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFEF4444).copy(alpha = 0.2f),
+                            border = BorderStroke(0.5.dp, Color(0xFFEF4444))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "终止视频生成",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "终止渲染",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFFEF4444),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "Go to Video Studio",
+                            tint = AgnesVioletLight,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
 
             // Clean Single-Row Header (Plan 1: Minimalist Native Top Bar)
             Row(
@@ -308,6 +397,7 @@ fun AgentChatScreen(
                     item {
                         ActiveSkillExecutingBanner(
                             record = currentExecutingSkill,
+                            onCancel = { viewModel.cancelChatTask() },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -331,8 +421,35 @@ fun AgentChatScreen(
                                 text = if (progressMessage.isNotBlank()) progressMessage else "Dream AI 正在思考并执行调度...",
                                 fontSize = 11.sp,
                                 color = AgnesCyan,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                onClick = { viewModel.cancelChatTask() },
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFFEF4444).copy(alpha = 0.2f),
+                                border = BorderStroke(0.5.dp, Color(0xFFEF4444))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Stop,
+                                        contentDescription = "终止",
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = "终止",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFEF4444),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -548,36 +665,54 @@ fun AgentChatScreen(
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Right Inset Action: Send Pill Button
-                    val canSend = (inputText.isNotBlank() || selectedImageUri != null) && !isGenerating
-                    IconButton(
-                        onClick = {
-                            if (canSend) {
-                                viewModel.sendUserMessage(inputText, selectedImageUri)
-                                inputText = ""
-                                selectedImageUri = null
-                                showQuickPrompts = false
-                            }
-                        },
-                        enabled = canSend,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .background(
-                                brush = if (canSend) {
-                                    Brush.linearGradient(listOf(AgnesViolet, AgnesCyan))
-                                } else {
-                                    Brush.linearGradient(listOf(AppSubtleBg, AppSubtleBg))
-                                },
-                                shape = CircleShape
+                    // Right Inset Action: Send Pill Button / Stop Button
+                    if (isGenerating) {
+                        IconButton(
+                            onClick = { viewModel.cancelChatTask() },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(Color(0xFFEF4444).copy(alpha = 0.2f), CircleShape)
+                                .border(1.dp, Color(0xFFEF4444), CircleShape)
+                                .testTag("cancel_chat_task_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "终止当前任务",
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(16.dp)
                             )
-                            .testTag("send_message_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (canSend) Color.White else AppTextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        }
+                    } else {
+                        val canSend = (inputText.isNotBlank() || selectedImageUri != null)
+                        IconButton(
+                            onClick = {
+                                if (canSend) {
+                                    viewModel.sendUserMessage(inputText, selectedImageUri)
+                                    inputText = ""
+                                    selectedImageUri = null
+                                    showQuickPrompts = false
+                                }
+                            },
+                            enabled = canSend,
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    brush = if (canSend) {
+                                        Brush.linearGradient(listOf(AgnesViolet, AgnesCyan))
+                                    } else {
+                                        Brush.linearGradient(listOf(AppSubtleBg, AppSubtleBg))
+                                    },
+                                    shape = CircleShape
+                                )
+                                .testTag("send_message_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                tint = if (canSend) Color.White else AppTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }

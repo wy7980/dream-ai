@@ -307,14 +307,31 @@ class AgnesRepository(
                 scene = clip,
                 projectId = projectId,
                 stylePreset = stylePreset,
-                sourceImageUri = sourceImageUri
+                sourceImageUri = sourceImageUri,
+                onTaskIdReceived = { taskId ->
+                    val updatedWithTaskId = generatingClip.copy(
+                        taskId = taskId,
+                        statusMessage = "已接收 Task ID: $taskId，等待服务端渲染..."
+                    )
+                    database.sceneClipDao().updateClip(updatedWithTaskId)
+                },
+                onStatusUpdate = { statusMsg ->
+                    onProgress(statusMsg)
+                    val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
+                    database.sceneClipDao().updateClip(
+                        currentClip.copy(statusMessage = statusMsg)
+                    )
+                }
             )
 
             if (clipGenResult.isSuccess) {
-                val clipPath = clipGenResult.getOrThrow()
+                val clipRes = clipGenResult.getOrThrow()
+                val finalUrl = clipRes.videoUrl ?: ""
                 val updatedClip = clip.copy(
-                    videoUrl = clipPath,
-                    previewThumbnailUrl = clipPath,
+                    videoUrl = finalUrl,
+                    previewThumbnailUrl = finalUrl,
+                    taskId = clipRes.taskId ?: clip.taskId,
+                    statusMessage = clipRes.statusMessage,
                     status = GenerationStatus.COMPLETED
                 )
                 database.sceneClipDao().updateClip(updatedClip)
@@ -327,9 +344,12 @@ class AgnesRepository(
                     )
                 )
             } else {
-                val failedClip = clip.copy(
+                val errReason = clipGenResult.exceptionOrNull()?.message ?: "未知异常"
+                val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: clip
+                val failedClip = currentClip.copy(
                     status = GenerationStatus.FAILED,
-                    error = clipGenResult.exceptionOrNull()?.message
+                    statusMessage = "生成异常: $errReason",
+                    error = errReason
                 )
                 database.sceneClipDao().updateClip(failedClip)
             }

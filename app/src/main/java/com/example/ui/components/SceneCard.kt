@@ -42,6 +42,7 @@ import coil.compose.AsyncImage
 import java.io.File
 import com.example.data.model.GenerationStatus
 import com.example.data.model.SceneClip
+import com.example.ui.theme.*
 import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
@@ -298,6 +299,37 @@ fun SceneCard(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             lineHeight = 14.sp
+                        )
+                    }
+
+                    if (!clip.taskId.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(AgnesViolet.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                .border(0.5.dp, AgnesViolet.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "🆔 Task ID: ${clip.taskId}",
+                                fontSize = 9.sp,
+                                color = AgnesVioletLight,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    if (!clip.statusMessage.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "💬 Status: ${clip.statusMessage}",
+                            fontSize = 9.sp,
+                            color = if (clip.status == GenerationStatus.FAILED) AgnesRose else AgnesCyan,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 12.sp
                         )
                     }
                 }

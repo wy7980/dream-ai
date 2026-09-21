@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -187,6 +189,7 @@ fun AgentLoadedSkillsBar(
 @Composable
 fun ActiveSkillExecutingBanner(
     record: SkillInvocationRecord?,
+    onCancel: () -> Unit = {},
     onDismiss: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -244,6 +247,32 @@ fun ActiveSkillExecutingBanner(
                         fontSize = 11.sp,
                         color = AppTextSecondary,
                         maxLines = 1
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+                onClick = onCancel,
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFFEF4444).copy(alpha = 0.2f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Stop,
+                        contentDescription = "终止任务",
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "终止",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFEF4444)
                     )
                 }
             }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,7 +27,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.Button
@@ -90,7 +91,9 @@ fun VideoPipelineScreen(
 ) {
     val rateLimitState by viewModel.rateLimitState.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
+    val isVideoGenerating by viewModel.isVideoGenerating.collectAsState()
     val progressMessage by viewModel.progressMessage.collectAsState()
+    val videoProgressMessage by viewModel.videoProgressMessage.collectAsState()
     val selectedProject by viewModel.selectedProject.collectAsState()
     val selectedClips by viewModel.selectedProjectClips.collectAsState()
 
@@ -327,40 +330,57 @@ fun VideoPipelineScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Launch Pipeline Button
-                    Button(
-                        onClick = {
-                            viewModel.startVideoPipeline(
-                                themePrompt = themePrompt,
-                                sourceImageUri = sourceImageUri,
-                                sceneCount = sceneCount,
-                                stylePreset = selectedStyle
+                    // Launch / Cancel Pipeline Button
+                    val isRunning = isVideoGenerating || isGenerating
+                    if (isRunning) {
+                        Button(
+                            onClick = { viewModel.cancelVideoTask() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("cancel_pipeline_button"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFEF4444)
                             )
-                        },
-                        enabled = !isGenerating,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("start_pipeline_button"),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AgnesCyan
-                        )
-                    ) {
-                        if (isGenerating) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = Color(0xFF0F172A),
-                                strokeWidth = 2.dp
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "终止视频流水线",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "终止视频生成流水线 (${if (videoProgressMessage.isNotBlank()) videoProgressMessage else if (progressMessage.isNotBlank()) progressMessage else "正在运行"})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                viewModel.startVideoPipeline(
+                                    themePrompt = themePrompt,
+                                    sourceImageUri = sourceImageUri,
+                                    sceneCount = sceneCount,
+                                    stylePreset = selectedStyle
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("start_pipeline_button"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AgnesCyan
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (progressMessage.isNotBlank()) progressMessage else "正在执行视频分镜生成流水线...",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F172A)
-                            )
-                        } else {
+                        ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,

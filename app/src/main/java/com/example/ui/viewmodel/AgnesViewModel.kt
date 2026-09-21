@@ -82,11 +82,44 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
 
+    private val _isVideoGenerating = MutableStateFlow(false)
+    val isVideoGenerating: StateFlow<Boolean> = _isVideoGenerating.asStateFlow()
+
     private val _progressMessage = MutableStateFlow("")
     val progressMessage: StateFlow<String> = _progressMessage.asStateFlow()
 
+    private val _videoProgressMessage = MutableStateFlow("")
+    val videoProgressMessage: StateFlow<String> = _videoProgressMessage.asStateFlow()
+
     private val _toastMessage = MutableStateFlow<String?>(null)
     val toastMessage: StateFlow<String?> = _toastMessage.asStateFlow()
+
+    private var chatJob: kotlinx.coroutines.Job? = null
+    private var videoJob: kotlinx.coroutines.Job? = null
+
+    fun cancelChatTask() {
+        if (chatJob?.isActive == true) {
+            chatJob?.cancel()
+            chatJob = null
+            _isGenerating.value = false
+            _progressMessage.value = ""
+            _currentExecutingSkill.value = _currentExecutingSkill.value?.copy(
+                status = InvocationStatus.FAILED,
+                statusMessage = "任务已被用户主动终止"
+            )
+            _toastMessage.value = "已终止智能体当前任务"
+        }
+    }
+
+    fun cancelVideoTask() {
+        if (videoJob?.isActive == true) {
+            videoJob?.cancel()
+            videoJob = null
+            _isVideoGenerating.value = false
+            _videoProgressMessage.value = ""
+            _toastMessage.value = "已终止视频后台渲染任务"
+        }
+    }
 
     init {
         // Add welcome message if chat is empty
@@ -234,27 +267,30 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch {
-            _isGenerating.value = true
-            _progressMessage.value = "排队等待 Agnes API 调度中..."
-            
-            val result = repository.generateImageToImage(
-                prompt = prompt,
-                stylePreset = stylePreset,
-                aspectRatio = aspectRatio,
-                sourceImageUri = sourceImageUri
-            )
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            try {
+                _isGenerating.value = true
+                _progressMessage.value = "排队等待 Agnes API 调度中..."
+                
+                val result = repository.generateImageToImage(
+                    prompt = prompt,
+                    stylePreset = stylePreset,
+                    aspectRatio = aspectRatio,
+                    sourceImageUri = sourceImageUri
+                )
 
-            _isGenerating.value = false
-            _progressMessage.value = ""
-
-            if (result.isSuccess) {
-                val proj = result.getOrThrow()
-                _selectedProject.value = proj
-                _toastMessage.value = "AI 图像生成完成！"
-                onSuccess(proj)
-            } else {
-                _toastMessage.value = "生成失败: ${result.exceptionOrNull()?.message}"
+                if (result.isSuccess) {
+                    val proj = result.getOrThrow()
+                    _selectedProject.value = proj
+                    _toastMessage.value = "AI 图像生成完成！"
+                    onSuccess(proj)
+                } else {
+                    _toastMessage.value = "生成失败: ${result.exceptionOrNull()?.message}"
+                }
+            } finally {
+                _isGenerating.value = false
+                _progressMessage.value = ""
             }
         }
     }
@@ -271,30 +307,33 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch {
-            _isGenerating.value = true
-            _progressMessage.value = "正在启动多段视频生成流水线..."
+        videoJob?.cancel()
+        videoJob = viewModelScope.launch {
+            try {
+                _isVideoGenerating.value = true
+                _videoProgressMessage.value = "正在启动多段视频生成流水线..."
 
-            val result = repository.startFullVideoPipeline(
-                themePrompt = themePrompt,
-                sourceImageUri = sourceImageUri,
-                sceneCount = sceneCount,
-                stylePreset = stylePreset,
-                onProgress = { msg ->
-                    _progressMessage.value = msg
+                val result = repository.startFullVideoPipeline(
+                    themePrompt = themePrompt,
+                    sourceImageUri = sourceImageUri,
+                    sceneCount = sceneCount,
+                    stylePreset = stylePreset,
+                    onProgress = { msg ->
+                        _videoProgressMessage.value = msg
+                    }
+                )
+
+                if (result.isSuccess) {
+                    val proj = result.getOrThrow()
+                    selectProject(proj)
+                    _toastMessage.value = "视频流水线已完成！多段视频已拼接合成。"
+                    onSuccess(proj)
+                } else {
+                    _toastMessage.value = "视频生成失败: ${result.exceptionOrNull()?.message}"
                 }
-            )
-
-            _isGenerating.value = false
-            _progressMessage.value = ""
-
-            if (result.isSuccess) {
-                val proj = result.getOrThrow()
-                selectProject(proj)
-                _toastMessage.value = "视频流水线已完成！多段视频已拼接合成。"
-                onSuccess(proj)
-            } else {
-                _toastMessage.value = "视频生成失败: ${result.exceptionOrNull()?.message}"
+            } finally {
+                _isVideoGenerating.value = false
+                _videoProgressMessage.value = ""
             }
         }
     }
@@ -302,38 +341,44 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     fun sendUserMessage(text: String, attachedImageUri: String?) {
         if (text.isBlank() && attachedImageUri == null) return
 
-        viewModelScope.launch {
-            repository.sendChatMessage(text, attachedImageUri)
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            try {
+                repository.sendChatMessage(text, attachedImageUri)
 
-            val mode = _chatIntentMode.value
-            _isGenerating.value = true
-            _progressMessage.value = "Dream AI 智能体决策中..."
+                val mode = _chatIntentMode.value
+                _isGenerating.value = true
+                _progressMessage.value = "Dream AI 智能体决策中..."
 
-            val decision = decisionEngine.decide(
-                config = config.value,
-                userPrompt = text,
-                attachedImageUri = attachedImageUri,
-                chatHistory = chatMessages.value,
-                mode = mode
-            )
+                val decision = decisionEngine.decide(
+                    config = config.value,
+                    userPrompt = text,
+                    attachedImageUri = attachedImageUri,
+                    chatHistory = chatMessages.value,
+                    mode = mode
+                )
 
-            when (decision) {
-                is AgentDecision.DirectChatReply -> {
-                    _isGenerating.value = false
-                    _progressMessage.value = ""
-                    repository.saveAgentReply(
-                        replyText = decision.replyText,
-                        actionType = "CHAT_REPLY"
-                    )
+                when (decision) {
+                    is AgentDecision.DirectChatReply -> {
+                        _isGenerating.value = false
+                        _progressMessage.value = ""
+                        repository.saveAgentReply(
+                            replyText = decision.replyText,
+                            actionType = "CHAT_REPLY"
+                        )
+                    }
+                    is AgentDecision.InvokeSkill -> {
+                        executeSkillInternal(
+                            skill = decision.skill,
+                            arguments = decision.arguments,
+                            preThoughtText = decision.preThoughtText,
+                            attachedImageUri = attachedImageUri
+                        )
+                    }
                 }
-                is AgentDecision.InvokeSkill -> {
-                    executeSkillInternal(
-                        skill = decision.skill,
-                        arguments = decision.arguments,
-                        preThoughtText = decision.preThoughtText,
-                        attachedImageUri = attachedImageUri
-                    )
-                }
+            } finally {
+                _isGenerating.value = false
+                _progressMessage.value = ""
             }
         }
     }
@@ -348,15 +393,21 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        viewModelScope.launch {
-            val userText = "调用技能 [${skill.name}]"
-            repository.sendChatMessage(userText, attachedImageUri)
-            executeSkillInternal(
-                skill = skill,
-                arguments = arguments,
-                preThoughtText = "⚡ [用户手动唤起技能] 已加载技能 `[${skill.name}]`。",
-                attachedImageUri = attachedImageUri
-            )
+        chatJob?.cancel()
+        chatJob = viewModelScope.launch {
+            try {
+                val userText = "调用技能 [${skill.name}]"
+                repository.sendChatMessage(userText, attachedImageUri)
+                executeSkillInternal(
+                    skill = skill,
+                    arguments = arguments,
+                    preThoughtText = "⚡ [用户手动唤起技能] 已加载技能 `[${skill.name}]`。",
+                    attachedImageUri = attachedImageUri
+                )
+            } finally {
+                _isGenerating.value = false
+                _progressMessage.value = ""
+            }
         }
     }
 
