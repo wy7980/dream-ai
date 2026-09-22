@@ -960,7 +960,7 @@ class AgnesRepository(
                         projectId = "",
                         sceneNumber = i + 1,
                         sceneTitle = template.first,
-                        visualPrompt = "${template.second}, style: $stylePreset, theme: $themePrompt, ultra photorealistic, 8k render, unreal engine 5 cinematics",
+                        visualPrompt = "【全片统一画风·强制】$stylePreset。本镜头：${template.second}，全片同一画风，严禁切换画风或媒介",
                         cameraMovement = camera,
                         narration = "第${i + 1}幕：${template.third}，故事在「$themePrompt」中徐徐展开。",
                         durationSeconds = 10

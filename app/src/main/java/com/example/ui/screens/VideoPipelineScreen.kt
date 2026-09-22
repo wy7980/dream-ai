@@ -37,7 +37,11 @@ import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -96,6 +100,20 @@ import com.example.ui.theme.AppTextSecondary
 import androidx.compose.material3.MaterialTheme
 import com.example.ui.viewmodel.AgnesViewModel
 
+/** Video art styles. Each entry maps a stable `stylePreset` key to the Chinese medium name shown
+ *  in the dropdown. The chosen key is pinned into the project's `stylePreset` AND echoed into the
+ *  director's `styleBible.visualStyle`, so one film keeps exactly one rendering medium. */
+val VIDEO_ART_STYLES = listOf(
+    "Cinematic 3D" to "电影级 3D",
+    "Realistic Photography" to "真人实拍",
+    "Anime Fantasy" to "二次元动漫",
+    "Chinese Ink Painting" to "中国水墨",
+    "Pixar 3D" to "皮克斯 3D",
+    "Cyberpunk" to "赛博朋克",
+    "Oil Painting" to "油画艺术",
+    "Stop Motion Clay" to "定格黏土"
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoPipelineScreen(
@@ -129,6 +147,7 @@ fun VideoPipelineScreen(
     // material instead of the user guessing. Sliders are disabled and shown as "AI 规划".
     var autoPlan by remember { mutableStateOf(true) }
     var selectedStyle by remember { mutableStateOf("Cinematic 3D") }
+    var styleMenuExpanded by remember { mutableStateOf(false) }
     var showImagePicker by remember { mutableStateOf(false) }
     var showHistoryDrawer by remember { mutableStateOf(false) }
 
@@ -448,6 +467,74 @@ fun VideoPipelineScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Art style dropdown (explicit, single-choice). Pins ONE rendering medium for
+                    // the whole film; the key goes into stylePreset and the director prompt echoes
+                    // it into styleBible.visualStyle so no scene drifts to another medium.
+                    Text(
+                        text = "全片画风（风格锁定）:",
+                        fontSize = 11.sp,
+                        color = AppTextSecondary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = styleMenuExpanded,
+                        onExpandedChange = { styleMenuExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = VIDEO_ART_STYLES.firstOrNull { it.first == selectedStyle }?.second
+                                ?: selectedStyle,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                                .testTag("video_style_dropdown"),
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = styleMenuExpanded)
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AgnesViolet,
+                                unfocusedBorderColor = AppCardBorder,
+                                focusedContainerColor = AppInputBg,
+                                unfocusedContainerColor = AppInputBg,
+                                focusedTextColor = AppTextPrimary,
+                                unfocusedTextColor = AppTextPrimary
+                            )
+                        )
+                        ExposedDropdownMenu(
+                            expanded = styleMenuExpanded,
+                            onDismissRequest = { styleMenuExpanded = false },
+                            modifier = Modifier.background(AppCardBg)
+                        ) {
+                            VIDEO_ART_STYLES.forEach { (key, name) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = name,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (key == selectedStyle) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (key == selectedStyle) AgnesCyan else AppTextPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        selectedStyle = key
+                                        styleMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "选定画风会同时写入 stylePreset 与全片 styleBible.visualStyle，禁止逐幕切换媒介",
+                        fontSize = 9.sp,
+                        color = AppTextSecondary
+                    )
 
                     Spacer(modifier = Modifier.height(8.dp))
 

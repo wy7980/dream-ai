@@ -571,20 +571,22 @@ class AgnesClient(
 
                         $durationRule
 
-                        FIRST, define a single GLOBAL "styleBible" (中文) that every scene MUST obey so the clips look like one continuous film:
-                        - 主角：确切外貌（年龄、发型、面容、服装、关键道具）——所有分镜保持完全一致
-                        - 环境：确切地点、年代、时段、天气
-                        - 光照：一致的光位、情绪与时间推进
-                        - 调色：一致的色彩与影调风格
-                        - 镜头语言：一致的焦段/构图风格与运镜语法
-                        - 连续性说明：每一幕如何从上、一幕结尾自然承接（为无缝拼接服务）
+                        FIRST, define a single GLOBAL "styleBible" (中文) that every scene MUST obey so the clips look like one continuous film. The "visualStyle" field is the SINGLE MOST IMPORTANT field — it pins the ONE rendering medium / art style for the WHOLE film and is IMMUTABLE:
+                        - visualStyle：全片唯一画风媒介（例如：真人实拍电影感 / 3D动画 / 日式赛璐璐动漫 / 中国水墨 / 皮克斯3D / 定格黏土），并写明画质与渲染质感（胶片颗粒、镜头感等）。**所有分镜必须严格同一画风，禁止任何一幕切换媒介或画风**（不得出现一会儿水墨、一会儿动漫、一会儿真人）。若用户已指定风格（$stylePreset），visualStyle 必须与之统一。
+                        - protagonist：确切外貌（年龄、发型、面容、服装、关键道具）——所有分镜保持完全一致
+                        - environment：确切地点、年代、时段、天气
+                        - lighting：一致的光位、情绪与时间推进
+                        - colorGrading：一致的色彩与影调风格
+                        - cameraLanguage：一致的焦段/构图风格与运镜语法
+                        - continuityNote：每一幕如何从上、一幕结尾自然承接（为无缝拼接服务）
 
-                        Then create the scenes. Each scene's visualPrompt MUST re-state the 主角 / 环境 / 光照 / 调色 so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
+                        Then create the scenes. Each scene's visualPrompt MUST BEGIN by re-stating the visualStyle and the protagonist VERBATIM from the styleBible, THEN describe this scene's action / environment / lighting / color so the renderer stays consistent. Never change the medium or the protagonist's look between scenes, and each scene (except the first) MUST visually continue from where the previous scene ended.
 
                         Return strict JSON, no markdown:
                         {
                           "recommendedDurationPerScene": 5,
                           "styleBible": {
+                            "visualStyle": "...",
                             "protagonist": "...",
                             "environment": "...",
                             "lighting": "...",
@@ -697,7 +699,7 @@ class AgnesClient(
             val root = JSONObject("{$cleanJson}")
             val bible = root.optJSONObject("styleBible") ?: return null
             val parts = mutableListOf<String>()
-            for (key in listOf("protagonist", "environment", "lighting", "colorGrading", "cameraLanguage", "continuityNote")) {
+            for (key in listOf("visualStyle", "protagonist", "environment", "lighting", "colorGrading", "cameraLanguage", "continuityNote")) {
                 val value = bible.optString(key, "").trim()
                 if (value.isNotBlank() && !value.equals("null", ignoreCase = true)) {
                     parts.add(value)
@@ -771,12 +773,16 @@ class AgnesClient(
                     val requestJson = JSONObject().apply {
                         put("model", effectiveModel)
                         val promptParts = mutableListOf<String>()
-                        promptParts.add(scene.visualPrompt)
-                        promptParts.add("运镜：${scene.cameraMovement}")
-                        promptParts.add("风格：$stylePreset")
+                        // Style lock goes FIRST and is stated as mandatory: it must dominate every
+                        // other instruction. Otherwise the free-form per-scene text can drift the
+                        // medium shot-to-shot (one shot watercolour, the next anime, the next live
+                        // action) — the exact failure this ordering prevents.
+                        promptParts.add("【全片统一画风·强制】$stylePreset")
                         if (!styleBible.isNullOrBlank()) {
-                            promptParts.add("严格保持与全局风格设定一致的画面连续性：$styleBible")
+                            promptParts.add("全片风格锁定（所有镜头必须完全一致，严禁切换画风/媒介，严禁改变主角外貌）：$styleBible")
                         }
+                        promptParts.add("本镜头内容：${scene.visualPrompt}")
+                        promptParts.add("运镜：${scene.cameraMovement}")
                         if (!prevFrameImageUri.isNullOrBlank()) {
                             promptParts.add("从上一镜头无缝延续；保持相同的主体、服装、光照与调色")
                         }
@@ -2078,7 +2084,8 @@ class AgnesClient(
                 projectId = "",
                 sceneNumber = i + 1,
                 sceneTitle = template.first,
-                visualPrompt = "${template.second}，风格：$style，主题：$theme，超写实，8K 渲染，电影级质感",
+                // Lead with the locked style so the fallback storyboard cannot drift medium either.
+                visualPrompt = "【全片统一画风·强制】$style。本镜头：${template.second}，全片同一画风，严禁切换画风或媒介",
                 cameraMovement = camera,
                 narration = "第${i + 1}幕：${template.third}，故事在「$theme」中徐徐展开。",
                 durationSeconds = 10
