@@ -46,37 +46,37 @@ class AgnesRepository(
         private val FALLBACK_SCENE_TEMPLATES = listOf(
             Triple(
                 "启幕：宏大世界观展现",
-                "Slow Aerial Zoom Out over a stunning futuristic landscape with dramatic neon skyline and atmospheric volumetric lighting",
+                "航拍缓慢推远俯瞰未来都市全景，霓虹天际线与体积光渲染，晨曦穿透云层",
                 "缓慢推远俯瞰，展现宏伟世界全貌与晨曦光影"
             ),
             Triple(
                 "聚焦：关键主体与动态张力",
-                "Dynamic Tracking Shot following the central protagonist discovering a pulsating quantum crystal anomaly",
+                "低角度跟拍镜头，主角发现脉动的量子晶体异常，能量微光映照面部",
                 "低角度跟镜头推进，捕捉主体神秘能量脉动"
             ),
             Triple(
                 "递进：环境探索与线索浮现",
-                "Handheld Parallax Push through a rain-slicked neon alley as holographic clues flicker to life",
+                "手持视差推进穿过雨夜霓虹窄巷，全息线索逐一亮起，湿地倒影反射光斑",
                 "手持视差推进，霓虹雨巷中全息线索逐一亮起"
             ),
             Triple(
                 "高潮：能量爆发与视觉冲击",
-                "Fast Dolly In & Orbiting 360 Shot during an energy surge with glowing particle cascades and hyperspace warping",
+                "快速推近并360度环绕拍摄能量爆发，发光粒子瀑布扩散，空间扭曲",
                 "全方位旋转环绕特写，能量波纹与光子粒子爆发扩散"
             ),
             Triple(
                 "转折：危机与抉择时刻",
-                "Slow-Motion Crash Zoom onto the protagonist's face as alarms flare and debris drifts past",
+                "升格急推特写主角面部，警报红光闪烁，碎片缓缓掠过，紧张氛围",
                 "升格急推特写，警报闪烁、碎片掠过，危机与抉择降临"
             ),
             Triple(
                 "尾声：电影级史诗定格",
-                "Cinematic Sunset Crane Shot rising slowly into the starry twilight as peace returns to the neon horizon",
+                "电影感日落摇臂镜头缓缓升起，星空与暮色交融，霓虹地平线归于平静",
                 "摇臂镜头升起，星空与余晖交织，定格电影级史诗终章"
             ),
             Triple(
                 "余韵：未来无限延展",
-                "Macro lens slowly shifting focus from a neon dewdrop to the boundless cosmos reflected within it",
+                "微距镜头焦点由霓虹露珠缓慢转移到其中折射的无垠宇宙",
                 "微距焦点转移，水滴中折射无垠宇宙光芒"
             )
         )
