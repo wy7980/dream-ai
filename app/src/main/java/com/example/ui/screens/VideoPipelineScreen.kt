@@ -113,6 +113,7 @@ fun VideoPipelineScreen(
     val selectedClips by viewModel.selectedProjectClips.collectAsState()
     val rerunningClipId by viewModel.rerunningClipId.collectAsState()
     val projects by viewModel.projects.collectAsState()
+    val resumableTasks by viewModel.resumableTasks.collectAsState()
 
     var themePrompt by remember {
         mutableStateOf(
@@ -178,6 +179,85 @@ fun VideoPipelineScreen(
             Spacer(modifier = Modifier.height(2.dp))
             // Rate limit header
             RateLimitBanner(rateLimitState = rateLimitState)
+        }
+
+        // Resume banner: a previous process was killed mid-pipeline. Option B = detect and resume
+        // on next launch, so surface it prominently instead of leaving the task silently stuck.
+        if (!isVideoGenerating && resumableTasks.isNotEmpty()) {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, AgnesAmber.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        .testTag("resume_task_banner"),
+                    color = AgnesAmber.copy(alpha = 0.12f),
+                    tonalElevation = 2.dp
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.HourglassTop,
+                                contentDescription = null,
+                                tint = AgnesAmber,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "检测到未完成的视频任务 (${resumableTasks.size})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AgnesAmber
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "上次运行被中断，已完成的分镜不会丢失。点击「继续」将续跑未完成部分（复用已提交的远端任务，不重复消耗限速配额）。",
+                            fontSize = 10.sp,
+                            color = AppTextSecondary,
+                            lineHeight = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        resumableTasks.forEach { task ->
+                            val stageLabel = when (task.stage) {
+                                com.example.data.model.TaskStage.PLANNING -> "规划中"
+                                com.example.data.model.TaskStage.RENDERING -> "渲染中"
+                                com.example.data.model.TaskStage.STITCHING -> "拼接中"
+                                else -> task.stage.name
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "[$stageLabel] 分镜 ${task.currentSceneNumber}/${task.totalScenes}${if (task.remoteTaskId != null) " · ${task.remoteTaskId.take(16)}..." else ""}",
+                                    fontSize = 10.sp,
+                                    color = AppTextPrimary,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Button(
+                                    onClick = { viewModel.resumeTask(task.projectId) },
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .testTag("resume_task_${task.projectId}"),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AgnesEmerald),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = "继续",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Header

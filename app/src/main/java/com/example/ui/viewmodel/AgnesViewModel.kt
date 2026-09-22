@@ -13,6 +13,7 @@ import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
 import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
+import com.example.data.model.GenerationTask
 import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
@@ -126,6 +127,10 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     private val _rerunningClipId = MutableStateFlow<String?>(null)
     val rerunningClipId: StateFlow<String?> = _rerunningClipId.asStateFlow()
 
+    /** Pipeline runs a previous (killed) process left unfinished; drives the resume banner. */
+    private val _resumableTasks = MutableStateFlow<List<GenerationTask>>(emptyList())
+    val resumableTasks: StateFlow<List<GenerationTask>> = _resumableTasks.asStateFlow()
+
     fun cancelChatTask() {
         if (chatJob?.isActive == true) {
             chatJob?.cancel()
@@ -151,6 +156,8 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        // Detect any pipeline a previous process left unfinished (option B: resume on next launch).
+        refreshResumableTasks()
         // Bootstrap the active conversation, then make sure it carries a welcome message.
         viewModelScope.launch {
             val sessionId = repository.ensureActiveSession()
@@ -442,6 +449,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 _isVideoGenerating.value = true
                 _videoProgressMessage.value = "AI 正在规划分镜脚本..."
+                val sessionId = requireSessionId()
                 val result = repository.planVideoProject(
                     themePrompt = themePrompt,
                     sourceImageUri = sourceImageUri,
@@ -450,11 +458,13 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                     videoModel = videoModel,
                     aspectRatio = aspectRatio,
                     durationPerScene = safeDurationPerScene(durationPerScene),
+                    sessionId = sessionId,
                     onProgress = { msg -> _videoProgressMessage.value = msg }
                 )
                 if (result.isSuccess) {
                     val proj = result.getOrThrow()
                     selectProject(proj)
+                    refreshResumableTasks()
                     _toastMessage.value = "AI 已规划 ${proj.totalClips} 幕，可调整后点击生成"
                     onSuccess(proj)
                 } else {
@@ -496,7 +506,53 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _isVideoGenerating.value = false
                 _videoProgressMessage.value = ""
+                refreshResumableTasks()
             }
+        }
+    }
+
+    /**
+     * Resume an interrupted pipeline (option B: detect-and-resume). Reconnects to an in-flight
+     * remote render when possible instead of spending a fresh video request.
+     */
+    fun resumeTask(projectId: String, onSuccess: (GenerationProject) -> Unit = {}) {
+        if (projectId.isBlank()) {
+            _toastMessage.value = "项目不存在"
+            return
+        }
+        videoJob?.cancel()
+        videoJob = viewModelScope.launch {
+            try {
+                _isVideoGenerating.value = true
+                _videoProgressMessage.value = "正在续跑未完成的视频任务..."
+                repository.getProjectDirect(projectId)?.let { selectProject(it) }
+                val result = repository.resumeTask(
+                    projectId = projectId,
+                    onProgress = { msg -> _videoProgressMessage.value = msg }
+                )
+                if (result.isSuccess) {
+                    val proj = result.getOrThrow()
+                    selectProject(proj)
+                    _toastMessage.value = "续跑完成！未完成任务已继续并处理完毕。"
+                    onSuccess(proj)
+                } else {
+                    _toastMessage.value = "续跑失败: ${result.exceptionOrNull()?.message}"
+                }
+            } finally {
+                _isVideoGenerating.value = false
+                _videoProgressMessage.value = ""
+                refreshResumableTasks()
+            }
+        }
+    }
+
+    /**
+     * Refresh the list of tasks left unfinished by a previous (killed) process. Called on launch
+     * and after every pipeline run so the video screen can surface a "继续未完成任务" banner.
+     */
+    fun refreshResumableTasks() {
+        viewModelScope.launch {
+            _resumableTasks.value = repository.findResumableTasks()
         }
     }
 
@@ -724,6 +780,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         val executionContext = SkillExecutionContext(
             config = config.value,
             attachedImageUri = attachedImageUri,
+            sessionId = sessionId,
             onProgress = { step ->
                 _progressMessage.value = step
                 _currentExecutingSkill.value = _currentExecutingSkill.value?.copy(

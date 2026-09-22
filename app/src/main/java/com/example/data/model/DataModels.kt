@@ -31,6 +31,9 @@ data class GenerationProject(
     val title: String,
     val type: ProjectType,
     val prompt: String,
+    /** Owning conversation, so a project (and its long-running video task) can be traced back
+     *  to the chat session that started it. Nullable for rows created before sessions existed. */
+    val sessionId: String? = null,
     val sourceImageUri: String? = null,
     val sourceImageBase64: String? = null,
     val resultImageUri: String? = null,
@@ -184,6 +187,61 @@ data class TavilySearchResponse(
     val answer: String? = null,
     val results: List<TavilySearchResultItem> = emptyList(),
     val rawJson: String? = null
+)
+
+/**
+ * Fine-grained lifecycle stage of a long-running (rate-limited) generation task.
+ *
+ * [GenerationProject.status] is a coarse, UI-facing summary; this enum is the durable state
+ * machine that lets an interrupted task be resumed after the app process dies (option B:
+ * detect-and-resume on next launch). Only non-terminal stages are considered resumable.
+ */
+enum class TaskStage {
+    /** Phase 1: the storyboard script is being planned (cheap, no video quota spent). */
+    PLANNING,
+
+    /** Phase 2: scenes are being rendered one by one; the remote task id is in [GenerationTask.remoteTaskId]. */
+    RENDERING,
+
+    /** All scenes rendered, the master video is being stitched. */
+    STITCHING,
+
+    /** Terminal: the whole pipeline finished successfully. */
+    COMPLETED,
+
+    /** Terminal: the pipeline stopped with an error; the user may retry. */
+    FAILED
+}
+
+/**
+ * One durable row per long-running video pipeline run.
+ *
+ * This is the "state machine on disk" that survives process death: every remote task id, the
+ * current scene, the poll attempt counter and a heartbeat are persisted here so that on the next
+ * app launch the pipeline can be detected and resumed (or honestly marked failed) instead of being
+ * silently orphaned mid-flight.
+ */
+@Entity(tableName = "generation_tasks")
+data class GenerationTask(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val projectId: String,
+    val sessionId: String? = null,
+    val stage: TaskStage = TaskStage.PLANNING,
+    /** Remote provider task/video id of the scene currently being polled (RENDERING only). */
+    val remoteTaskId: String? = null,
+    /** Local scene id currently being rendered, so a resume targets exactly the right row. */
+    val currentClipId: String? = null,
+    /** 1-based index of the scene currently being rendered, for a readable resume banner. */
+    val currentSceneNumber: Int = 0,
+    val totalScenes: Int = 0,
+    /** Number of poll ticks already spent on [remoteTaskId] (survives restarts). */
+    val pollCount: Int = 0,
+    /** Last poll timestamp / last progress write, used as a liveness heartbeat. */
+    val lastPolledAt: Long = 0L,
+    val lastMessage: String = "",
+    val error: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 data class RateLimitState(
