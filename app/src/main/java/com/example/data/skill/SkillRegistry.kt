@@ -3,6 +3,7 @@ package com.example.data.skill
 import android.content.Context
 import com.example.data.api.AgnesClient
 import com.example.data.model.GenerationProject
+import com.example.data.model.VideoDurationLimits
 import com.example.data.repository.AgnesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -173,7 +174,7 @@ class VideoGenerationSkill(
             ?: "电影级叙事视觉短片"
         val explicitModel = arguments["model"]?.toString()?.takeIf { it.isNotBlank() }
         val aspectRatio = arguments["aspectRatio"]?.toString()?.takeIf { it.isNotBlank() } ?: "16:9"
-        val duration = (arguments["duration"] as? Number)?.toInt() ?: 5
+        val duration = VideoDurationLimits.clamp((arguments["duration"] as? Number)?.toInt() ?: VideoDurationLimits.DEFAULT)
         val sceneCount = (arguments["sceneCount"] as? Number)?.toInt() ?: 4
         val stylePreset = arguments["stylePreset"]?.toString() ?: "Cinematic 3D"
         val sourceImageUri = arguments["sourceImageUri"]?.toString() ?: context.attachedImageUri

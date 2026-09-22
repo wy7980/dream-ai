@@ -14,6 +14,7 @@ import com.example.data.model.GenerationStatus
 import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
+import com.example.data.model.VideoDurationLimits
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -314,13 +315,16 @@ class AgnesRepository(
         stylePreset: String = "Cinematic 3D",
         videoModel: String? = null,
         aspectRatio: String = "16:9",
-        durationPerScene: Int = 5,
+        durationPerScene: Int = VideoDurationLimits.DEFAULT,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
         // Scene count is user-selectable from 1 to 20; clamp defensively so a bad caller
         // can never enqueue an unbounded number of rate-limited video requests.
         val requestedSceneCount = sceneCount.coerceIn(MIN_SCENE_COUNT, MAX_SCENE_COUNT)
+        // Per-scene duration is user-selectable from 4 to 12s; clamp so a bad caller can never
+        // push an out-of-contract `seconds` value to the video API.
+        val safeDurationPerScene = VideoDurationLimits.clamp(durationPerScene)
         val projectId = UUID.randomUUID().toString()
         val project = GenerationProject(
             id = projectId,
@@ -332,7 +336,7 @@ class AgnesRepository(
             completedClips = 0,
             stylePreset = stylePreset,
             aspectRatio = aspectRatio,
-            durationSeconds = durationPerScene * sceneCount,
+            durationSeconds = safeDurationPerScene * requestedSceneCount,
             status = GenerationStatus.SCRIPTING,
             statusMessage = "Dream AI 正在规划 $requestedSceneCount 段电影分镜脚本 (模型: $effectiveModel)..."
         )
@@ -362,7 +366,7 @@ class AgnesRepository(
         // The model may return a different number of scenes than requested (or fall back to a
         // curated template). Normalise to exactly the requested count, renumbering 1..N.
         val scenes = normalizeScenes(script.scenes, requestedSceneCount, themePrompt, stylePreset)
-            .map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
+            .map { it.copy(projectId = projectId, durationSeconds = safeDurationPerScene) }
         database.sceneClipDao().insertClips(scenes)
 
         // Deterministic per-project seed: keeps the render stable across re-runs of the same
@@ -438,7 +442,7 @@ class AgnesRepository(
                 seed = projectSeed,
                 modelOverride = effectiveModel,
                 aspectRatio = aspectRatio,
-                durationSeconds = durationPerScene,
+                durationSeconds = safeDurationPerScene,
                 onTaskIdReceived = { taskId ->
                     val updatedWithTaskId = generatingClip.copy(
                         taskId = taskId,

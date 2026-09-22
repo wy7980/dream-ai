@@ -62,6 +62,27 @@ class AgnesClient(
     private val context: Context,
     private val rateLimitManager: RateLimitManager
 ) {
+    private companion object {
+        /** Agnes Video V2.0 playback frame rate; fixed for smooth motion. */
+        const val V2_FRAME_RATE = 24
+
+        /** V2.0 `num_frames` must satisfy the `8n + 1` rule and stay <= 441. */
+        const val V2_MIN_FRAMES = 9
+        const val V2_MAX_FRAMES = 441
+
+        /**
+         * Convert a requested per-scene duration (seconds) into a valid V2.0 `num_frames`
+         * value: `num_frames = seconds * frame_rate`, snapped to the nearest `8n + 1`
+         * and clamped to [V2_MIN_FRAMES, V2_MAX_FRAMES].
+         */
+        fun framesForDuration(seconds: Int): Int {
+            val target = (seconds.coerceAtLeast(1) * V2_FRAME_RATE)
+                .coerceIn(V2_MIN_FRAMES, V2_MAX_FRAMES)
+            val n = Math.round((target - 1) / 8.0).toInt()
+            return (n * 8 + 1).coerceIn(V2_MIN_FRAMES, V2_MAX_FRAMES)
+        }
+    }
+
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
@@ -716,11 +737,14 @@ class AgnesClient(
                                     "21:9" -> Pair(1280, 544)
                                     else -> Pair(1152, 768) // 16:9
                                 }
-                                val frames = if (sceneDuration >= 10) 241 else 121
+                                // Agnes Video V2.0 has no `seconds` param: duration is derived from
+                                // num_frames / frame_rate. We fix frame_rate at 24 (smooth motion) and
+                                // snap num_frames to the required `8n+1` rule, capped at 441.
+                                val frames = framesForDuration(sceneDuration)
                                 put("width", w)
                                 put("height", h)
                                 put("num_frames", frames)
-                                put("frame_rate", 24)
+                                put("frame_rate", V2_FRAME_RATE)
                                 // A fixed seed keeps the subject/lighting stable when the same scene
                                 // is re-rendered, which further reduces flicker between shots.
                                 if (seed != null) put("seed", seed)

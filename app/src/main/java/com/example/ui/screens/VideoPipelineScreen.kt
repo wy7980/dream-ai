@@ -69,6 +69,7 @@ import coil.compose.AsyncImage
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
 import com.example.data.model.ProjectType
+import com.example.data.model.VideoDurationLimits
 import com.example.data.model.VideoSceneLimits
 import com.example.ui.components.ImagePickerBottomSheet
 import com.example.ui.components.RateLimitBanner
@@ -116,7 +117,7 @@ fun VideoPipelineScreen(
     var sourceImageUri by remember { mutableStateOf(initialImageUri) }
     var selectedModel by remember { mutableStateOf("agnes-video-2.5-flash") }
     var selectedRatio by remember { mutableStateOf("16:9") }
-    var sceneDuration by remember { mutableIntStateOf(5) }
+    var sceneDuration by remember { mutableIntStateOf(VideoDurationLimits.DEFAULT) }
     var sceneCount by remember { mutableIntStateOf(VideoSceneLimits.DEFAULT) }
     var selectedStyle by remember { mutableStateOf("Cinematic 3D") }
     var showImagePicker by remember { mutableStateOf(false) }
@@ -137,6 +138,10 @@ fun VideoPipelineScreen(
         sourceImageUri = project.sourceImageUri
         if (project.totalClips in VideoSceneLimits.MIN..VideoSceneLimits.MAX) {
             sceneCount = project.totalClips
+        }
+        // Recover the per-scene duration from the project total (total = scenes * perScene).
+        if (project.totalClips > 0 && project.durationSeconds > 0) {
+            sceneDuration = VideoDurationLimits.clamp(project.durationSeconds / project.totalClips)
         }
         if (project.stylePreset.isNotBlank()) selectedStyle = project.stylePreset
         if (project.aspectRatio.isNotBlank()) selectedRatio = project.aspectRatio
@@ -436,6 +441,50 @@ fun VideoPipelineScreen(
                             activeTrackColor = AgnesCyan,
                             inactiveTrackColor = AppSubtleBg
                         )
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Per-scene duration (4..12s). Total film length = sceneCount * sceneDuration,
+                    // so the live summary below makes the cost of both sliders obvious.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "单幕时长:",
+                            fontSize = 11.sp,
+                            color = AppTextSecondary,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "$sceneDuration 秒",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AgnesViolet
+                        )
+                    }
+
+                    Slider(
+                        value = sceneDuration.toFloat(),
+                        onValueChange = { sceneDuration = it.roundToInt().coerceIn(VideoDurationLimits.MIN, VideoDurationLimits.MAX) },
+                        valueRange = VideoDurationLimits.MIN.toFloat()..VideoDurationLimits.MAX.toFloat(),
+                        steps = VideoDurationLimits.MAX - VideoDurationLimits.MIN - 1,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("scene_duration_slider"),
+                        colors = SliderDefaults.colors(
+                            thumbColor = AgnesViolet,
+                            activeTrackColor = AgnesViolet,
+                            inactiveTrackColor = AppSubtleBg
+                        )
+                    )
+
+                    Text(
+                        text = "可选 ${VideoDurationLimits.MIN}-${VideoDurationLimits.MAX} 秒/幕 · 成片总时长约 ${sceneCount * sceneDuration} 秒",
+                        fontSize = 9.sp,
+                        color = AppTextSecondary
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
