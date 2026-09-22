@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Mic
@@ -73,10 +74,14 @@ fun SceneCard(
     onClick: () -> Unit = {},
     isRerunning: Boolean = false,
     onRerun: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     onSavePrompt: ((title: String, visualPrompt: String, cameraMovement: String, narration: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showEditDialog by remember { mutableStateOf(false) }
+    // A planned-but-unrendered scene: no video request has been spent yet, so it can still be
+    // freely edited or removed before phase 2 runs.
+    val isDraft = clip.isDraft && clip.status != GenerationStatus.COMPLETED
     Surface(
         onClick = onClick,
         modifier = modifier
@@ -86,6 +91,7 @@ fun SceneCard(
                 1.dp,
                 if (clip.status == GenerationStatus.COMPLETED) AgnesEmerald.copy(alpha = 0.5f)
                 else if (clip.status == GenerationStatus.GENERATING_CLIPS) AgnesCyan
+                else if (isDraft) AgnesViolet.copy(alpha = 0.5f)
                 else AppCardBorder,
                 RoundedCornerShape(12.dp)
             )
@@ -204,12 +210,50 @@ fun SceneCard(
                             color = AgnesRose
                         )
                     }
+                    GenerationStatus.AWAITING_REVIEW -> {
+                        Box(
+                            modifier = Modifier
+                                .background(AgnesViolet.copy(alpha = 0.15f), CircleShape)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = AgnesVioletLight,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "待确认",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AgnesVioletLight
+                                )
+                            }
+                        }
+                    }
                     else -> {
-                        Text(
-                            text = "等待调度",
-                            fontSize = 9.sp,
-                            color = AppTextSecondary
-                        )
+                        if (isDraft) {
+                            Box(
+                                modifier = Modifier
+                                    .background(AgnesViolet.copy(alpha = 0.15f), CircleShape)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "待生成",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AgnesVioletLight
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "等待调度",
+                                fontSize = 9.sp,
+                                color = AppTextSecondary
+                            )
+                        }
                     }
                 }
             }
@@ -352,10 +396,10 @@ fun SceneCard(
                 }
             }
 
-            // Per-scene actions: edit the storyboard script, and re-run just this clip.
-            // Editing is always available (even while rendering); re-run is disabled only
-            // while this very clip is actively generating.
-            if (onRerun != null || onSavePrompt != null) {
+            // Per-scene actions: edit the storyboard script, delete a not-yet-rendered scene, and
+            // re-run just this clip. Editing is always available (even while rendering); re-run is
+            // disabled only while this very clip is actively generating.
+            if (onRerun != null || onSavePrompt != null || onDelete != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -386,6 +430,40 @@ fun SceneCard(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = AgnesVioletLight
+                                )
+                            }
+                        }
+                        if (onRerun != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                    }
+
+                    if (onDelete != null) {
+                        val canDelete = !isRerunning && clip.status != GenerationStatus.GENERATING_CLIPS
+                        Surface(
+                            onClick = { if (canDelete) onDelete() },
+                            enabled = canDelete,
+                            shape = RoundedCornerShape(8.dp),
+                            color = AgnesRose.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AgnesRose.copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("delete_scene_${clip.sceneNumber}")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = AgnesRose,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "删除",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AgnesRose
                                 )
                             }
                         }

@@ -13,6 +13,12 @@ enum class GenerationStatus {
     IDLE,
     WAITING_RATE_LIMIT,
     SCRIPTING,
+    /**
+     * Script planned, waiting for the user to review / edit the storyboard (scene count, prompts,
+     * duration) before any rate-limited video request is spent. This is the two-phase hand-off:
+     * phase 1 stops here, phase 2 ([GENERATING_CLIPS]) starts only on explicit confirmation.
+     */
+    AWAITING_REVIEW,
     GENERATING_CLIPS,
     STITCHING,
     COMPLETED,
@@ -59,7 +65,13 @@ data class SceneClip(
     val statusMessage: String? = null, // Detailed status for debugging
     val status: GenerationStatus = GenerationStatus.IDLE,
     val cooldownRemainingSeconds: Int = 0,
-    val error: String? = null
+    val error: String? = null,
+    /**
+     * True when this scene was planned but has never been rendered yet (the project is still in
+     * the review phase). Kept separate from [status] so a planned scene is not mistaken for an
+     * IDLE/unplanned row, and so "只生成本幕" can target exactly the un-rendered scenes.
+     */
+    val isDraft: Boolean = false
 )
 
 @Entity(tableName = "chat_sessions")

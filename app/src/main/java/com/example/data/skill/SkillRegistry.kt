@@ -186,7 +186,8 @@ class VideoGenerationSkill(
 
         context.onProgress("技能 [video-generation] 正在规划分镜脚本与运镜语言 (模型: $effectiveModel, 比例: $aspectRatio)...")
 
-        val result = repository.startFullVideoPipeline(
+        // Agent path is one-shot: plan then render immediately (no interactive review step).
+        val planResult = repository.planVideoProject(
             themePrompt = themePrompt,
             sourceImageUri = sourceImageUri,
             sceneCount = sceneCount,
@@ -196,6 +197,16 @@ class VideoGenerationSkill(
             durationPerScene = duration,
             onProgress = context.onProgress
         )
+        val result = if (planResult.isSuccess) {
+            val planned = planResult.getOrThrow()
+            context.onProgress("已规划 ${planned.totalClips} 幕，开始逐段生成...")
+            repository.generateProjectVideo(
+                projectId = planned.id,
+                onProgress = context.onProgress
+            )
+        } else {
+            planResult
+        }
 
         return if (result.isSuccess) {
             val project = result.getOrThrow()

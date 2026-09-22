@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.Button
@@ -84,6 +85,7 @@ import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
+import com.example.ui.theme.AgnesVioletLight
 import com.example.ui.theme.AppCardBg
 import com.example.ui.theme.AppCardBorder
 import com.example.ui.theme.AppInputBg
@@ -554,7 +556,12 @@ fun VideoPipelineScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Launch / Cancel Pipeline Button
+                    // Phase-aware controls. A planned project sits at AWAITING_REVIEW: no video
+                    // request has been spent yet, so the user can still edit/delete scenes and then
+                    // explicitly kick off rendering. While rendering, the button becomes a cancel.
+                    val reviewProject = activeVideoProject?.takeIf {
+                        it.status == GenerationStatus.AWAITING_REVIEW && selectedClips.isNotEmpty()
+                    }
                     val isRunning = isVideoGenerating || isGenerating
                     if (isRunning) {
                         Button(
@@ -586,10 +593,92 @@ fun VideoPipelineScreen(
                                 )
                             }
                         }
+                    } else if (reviewProject != null) {
+                        // Review phase: two actions — regenerate the plan, or confirm and render.
+                        val pendingCount = selectedClips.count {
+                            it.status != GenerationStatus.COMPLETED || it.videoUrl.isNullOrBlank()
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                onClick = {
+                                    viewModel.planVideoProject(
+                                        themePrompt = themePrompt,
+                                        sourceImageUri = sourceImageUri,
+                                        sceneCount = if (autoPlan) VideoSceneLimits.AUTO else sceneCount,
+                                        stylePreset = selectedStyle,
+                                        videoModel = selectedModel,
+                                        aspectRatio = selectedRatio,
+                                        durationPerScene = if (autoPlan) VideoDurationLimits.AUTO else sceneDuration
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .testTag("replan_button"),
+                                shape = RoundedCornerShape(10.dp),
+                                color = AgnesViolet.copy(alpha = 0.15f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AgnesViolet.copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = AgnesVioletLight,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "重新规划",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AgnesVioletLight
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = { viewModel.generateVideoProject(reviewProject.id) },
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(46.dp)
+                                    .testTag("generate_confirmed_button"),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AgnesEmerald)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Videocam,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0F172A),
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "确认并生成 ($pendingCount 幕)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "💡 已规划 ${selectedClips.size} 幕（${reviewProject.durationSeconds / selectedClips.size.coerceAtLeast(1)}秒/幕）。可编辑提示词或删除分镜，确认后再开始生成，避免浪费限速配额。",
+                            fontSize = 10.sp,
+                            color = AppTextSecondary,
+                            lineHeight = 14.sp
+                        )
                     } else {
                         Button(
                             onClick = {
-                                viewModel.startVideoPipeline(
+                                viewModel.planVideoProject(
                                     themePrompt = themePrompt,
                                     sourceImageUri = sourceImageUri,
                                     sceneCount = if (autoPlan) VideoSceneLimits.AUTO else sceneCount,
@@ -617,7 +706,7 @@ fun VideoPipelineScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (autoPlan) "一键开启：AI 规划分镜 ➔ 生成多段视频 ➔ 拼接长视频" else "一键开启：规划分镜 ➔ 生成多段视频 ➔ 拼接长视频",
+                                    text = if (autoPlan) "第1步：AI 自动规划分镜脚本" else "第1步：规划 $sceneCount 幕分镜脚本",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF0F172A)
@@ -687,6 +776,15 @@ fun VideoPipelineScreen(
                         activeVideoProject?.let { proj ->
                             viewModel.rerunSceneClip(proj.id, clip.id)
                         }
+                    },
+                    onDelete = if (clip.isDraft && clip.status != GenerationStatus.COMPLETED) {
+                        {
+                            activeVideoProject?.let { proj ->
+                                viewModel.deleteSceneClip(proj.id, clip.id)
+                            }
+                        }
+                    } else {
+                        null
                     },
                     onSavePrompt = { title, visualPrompt, cameraMovement, narration ->
                         viewModel.updateScenePrompt(
