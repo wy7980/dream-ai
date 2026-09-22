@@ -11,6 +11,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
+import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
 import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
@@ -29,15 +30,19 @@ import com.example.util.DocumentType
 import com.example.util.GeneratedDocument
 import java.io.File
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class AgnesViewModel(application: Application) : AndroidViewModel(application) {
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val database: AppDatabase = Room.databaseBuilder(
         application,
         AppDatabase::class.java,
@@ -54,7 +59,18 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     val projects: StateFlow<List<GenerationProject>> = repository.allProjects
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val chatMessages: StateFlow<List<ChatMessage>> = repository.chatMessages
+    /** Currently open conversation; drives [chatMessages]. Null until the DB is first read. */
+    private val _activeSessionId = MutableStateFlow<String?>(null)
+    val activeSessionId: StateFlow<String?> = _activeSessionId.asStateFlow()
+
+    val chatMessages: StateFlow<List<ChatMessage>> = _activeSessionId
+        .flatMapLatest { sessionId ->
+            if (sessionId == null) flowOf(emptyList())
+            else repository.getMessagesForSession(sessionId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val chatSessions: StateFlow<List<ChatSession>> = repository.chatSessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _availableModels = MutableStateFlow<List<String>>(agnesClient.defaultPresetModels)
@@ -134,15 +150,46 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        // Add welcome message if chat is empty
+        // Bootstrap the active conversation, then make sure it carries a welcome message.
         viewModelScope.launch {
-            repository.chatMessages.collect { list ->
-                if (list.isEmpty()) {
-                    repository.saveAgentReply(
-                        replyText = "你好！我是 **Dream AI 创作智能体** 🧠⚡\n\n我已支持自主加载与调度多种专业技能（Skills）：\n- 🎨 **AI 图像生成与风格重绘**：基于文本或参考图生成高清画作、壁纸与艺术变奏\n- 🎬 **AI 电影分镜与视频流水线**：全自动影视分镜规划、多段视频逐幕渲染与无缝拼接\n- ✨ **视觉提示词专家润色**：中英文专业摄影级光影构图与渲染材质提示词\n- 📋 **导演级分镜规划**：好莱坞工业标准视听镜头语言设计与剧本拆解\n\n你可以通过自然语言直接向我提问或下达创作指令，我将自主识别并调用相应 Skill 执行任务！"
-                    )
-                }
+            val sessionId = repository.ensureActiveSession()
+            _activeSessionId.value = sessionId
+            if (repository.countMessagesForSession(sessionId) == 0) {
+                repository.saveAgentReply(
+                    sessionId = sessionId,
+                    replyText = "你好！我是 **Dream AI 创作智能体** 🧠⚡\n\n我已支持自主加载与调度多种专业技能（Skills）：\n- 🎨 **AI 图像生成与风格重绘**：基于文本或参考图生成高清画作、壁纸与艺术变奏\n- 🎬 **AI 电影分镜与视频流水线**：全自动影视分镜规划、多段视频逐幕渲染与无缝拼接\n- ✨ **视觉提示词专家润色**：中英文专业摄影级光影构图与渲染材质提示词\n- 📋 **导演级分镜规划**：好莱坞工业标准视听镜头语言设计与剧本拆解\n\n你可以通过自然语言直接向我提问或下达创作指令，我将自主识别并调用相应 Skill 执行任务！"
+                )
             }
+        }
+    }
+
+    /** Open an existing conversation (from the history drawer). */
+    fun selectChatSession(sessionId: String) {
+        if (_activeSessionId.value == sessionId) return
+        _activeSessionId.value = sessionId
+    }
+
+    /** Start a fresh conversation and make it active. */
+    fun startNewChatSession() {
+        viewModelScope.launch {
+            val sessionId = repository.createChatSession()
+            _activeSessionId.value = sessionId
+            repository.saveAgentReply(
+                sessionId = sessionId,
+                replyText = "已开启新对话 ✨ 有什么创作需求直接告诉我，我将自主调度相应技能为你实现。"
+            )
+            _toastMessage.value = "已开启新对话"
+        }
+    }
+
+    fun deleteChatSession(sessionId: String) {
+        viewModelScope.launch {
+            repository.deleteChatSession(sessionId)
+            // If the active conversation was deleted, fall back to the newest remaining one.
+            if (_activeSessionId.value == sessionId) {
+                _activeSessionId.value = repository.ensureActiveSession()
+            }
+            _toastMessage.value = "对话已删除"
         }
     }
 
@@ -448,7 +495,8 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
             try {
-                repository.sendChatMessage(text, attachedImageUri)
+                val sessionId = requireSessionId()
+                repository.sendChatMessage(sessionId, text, attachedImageUri)
 
                 val mode = _chatIntentMode.value
                 _isGenerating.value = true
@@ -467,12 +515,14 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                         _isGenerating.value = false
                         _progressMessage.value = ""
                         repository.saveAgentReply(
+                            sessionId = sessionId,
                             replyText = decision.replyText,
                             actionType = "CHAT_REPLY"
                         )
                     }
                     is AgentDecision.InvokeSkill -> {
                         executeSkillInternal(
+                            sessionId = sessionId,
                             skill = decision.skill,
                             arguments = decision.arguments,
                             preThoughtText = decision.preThoughtText,
@@ -500,9 +550,11 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
             try {
+                val sessionId = requireSessionId()
                 val userText = "调用技能 [${skill.name}]"
-                repository.sendChatMessage(userText, attachedImageUri)
+                repository.sendChatMessage(sessionId, userText, attachedImageUri)
                 executeSkillInternal(
+                    sessionId = sessionId,
                     skill = skill,
                     arguments = arguments,
                     preThoughtText = "⚡ [用户手动唤起技能] 已加载技能 `[${skill.name}]`。",
@@ -516,6 +568,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun executeSkillInternal(
+        sessionId: String,
         skill: AgentSkill,
         arguments: Map<String, Any?>,
         preThoughtText: String,
@@ -538,6 +591,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         // Save pre-thought message to chat stream
         val formattedArgs = arguments.entries.joinToString(", ") { "${it.key}: \"${it.value}\"" }
         repository.saveAgentReply(
+            sessionId = sessionId,
             replyText = "$preThoughtText\n\n⚡ **已装载并调用技能**：`${skill.name}` ${skill.iconEmoji}\n> 入参规格: `{$formattedArgs}`",
             actionType = "SKILL_CALL"
         )
@@ -587,6 +641,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             repository.saveAgentReply(
+                sessionId = sessionId,
                 replyText = "${result.outputMessage}$stepsFormatted",
                 relatedProjectId = result.relatedProjectId,
                 actionType = actionType,
@@ -602,6 +657,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                 executionTimeMs = elapsed
             )
             repository.saveAgentReply(
+                sessionId = sessionId,
                 replyText = "⚠️ 技能 `[${skill.name}]` 执行未完成: ${result.error ?: "未知错误"}",
                 actionType = "SKILL_FAILED"
             )
@@ -724,6 +780,17 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             }
             _toastMessage.value = "项目已删除"
         }
+    }
+
+    /**
+     * Resolve the conversation to write to. Falls back to bootstrapping the DB session when the
+     * screen has not yet opened one (e.g. a skill invoked before the chat screen composed).
+     */
+    private suspend fun requireSessionId(): String {
+        _activeSessionId.value?.let { return it }
+        val sessionId = repository.ensureActiveSession()
+        _activeSessionId.value = sessionId
+        return sessionId
     }
 
     fun clearChat() {

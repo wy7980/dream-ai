@@ -11,6 +11,7 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.Update
 import com.example.data.model.ChatMessage
+import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
 import com.example.data.model.ProjectType
@@ -94,20 +95,62 @@ interface SceneClipDao {
 }
 
 @Dao
+interface ChatSessionDao {
+    @Query("SELECT * FROM chat_sessions ORDER BY updatedAt DESC")
+    fun getAllSessions(): Flow<List<ChatSession>>
+
+    @Query("SELECT * FROM chat_sessions WHERE id = :id")
+    suspend fun getSessionById(id: String): ChatSession?
+
+    @Query("SELECT * FROM chat_sessions ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun getMostRecentSession(): ChatSession?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSession(session: ChatSession)
+
+    @Query("UPDATE chat_sessions SET title = :title, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateSessionTitle(id: String, title: String, updatedAt: Long)
+
+    @Query("UPDATE chat_sessions SET updatedAt = :updatedAt WHERE id = :id")
+    suspend fun touchSession(id: String, updatedAt: Long)
+
+    @Query("DELETE FROM chat_sessions WHERE id = :id")
+    suspend fun deleteSessionById(id: String)
+}
+
+@Dao
 interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages ORDER BY timestamp ASC")
     fun getAllMessages(): Flow<List<ChatMessage>>
 
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    fun getMessagesForSession(sessionId: String): Flow<List<ChatMessage>>
+
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    suspend fun getMessagesForSessionDirect(sessionId: String): List<ChatMessage>
+
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE sessionId = :sessionId")
+    suspend fun countMessagesForSession(sessionId: String): Int
+
+    @Query("SELECT COUNT(*) FROM chat_messages")
+    suspend fun countAllMessages(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: ChatMessage)
+
+    @Query("UPDATE chat_messages SET sessionId = :sessionId WHERE sessionId IS NULL")
+    suspend fun assignOrphanMessages(sessionId: String)
+
+    @Query("DELETE FROM chat_messages WHERE sessionId = :sessionId")
+    suspend fun deleteMessagesForSession(sessionId: String)
 
     @Query("DELETE FROM chat_messages")
     suspend fun clearAllMessages()
 }
 
 @Database(
-    entities = [GenerationProject::class, SceneClip::class, ChatMessage::class],
-    version = 3, // v3: GenerationProject.styleBible (inter-scene continuity)
+    entities = [GenerationProject::class, SceneClip::class, ChatMessage::class, ChatSession::class],
+    version = 4, // v4: ChatSession (conversation history) + ChatMessage.sessionId
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -115,4 +158,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun projectDao(): ProjectDao
     abstract fun sceneClipDao(): SceneClipDao
     abstract fun chatMessageDao(): ChatMessageDao
+    abstract fun chatSessionDao(): ChatSessionDao
 }

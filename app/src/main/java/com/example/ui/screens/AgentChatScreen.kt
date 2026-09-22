@@ -130,6 +130,8 @@ fun AgentChatScreen(
     val currentIntentMode by viewModel.chatIntentMode.collectAsState()
     val skills by viewModel.skills.collectAsState()
     val currentExecutingSkill by viewModel.currentExecutingSkill.collectAsState()
+    val chatSessions by viewModel.chatSessions.collectAsState()
+    val activeSessionId by viewModel.activeSessionId.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<String?>(null) }
@@ -335,10 +337,7 @@ fun AgentChatScreen(
                     }
 
                     IconButton(
-                        onClick = {
-                            viewModel.clearChat()
-                            viewModel.showToast("已开启新对话")
-                        },
+                        onClick = { viewModel.startNewChatSession() },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
@@ -785,9 +784,8 @@ fun AgentChatScreen(
                 // New Chat Action Button
                 Surface(
                     onClick = {
-                        viewModel.clearChat()
+                        viewModel.startNewChatSession()
                         showHistoryDrawer = false
-                        viewModel.showToast("已开启新对话")
                     },
                     shape = RoundedCornerShape(12.dp),
                     color = AgnesViolet.copy(alpha = 0.15f),
@@ -817,21 +815,13 @@ fun AgentChatScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Text(
-                    text = "历史创作项目与对话",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppTextSecondary
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Project History List
+                // Conversation + project history. Sessions come first so the list matches the
+                // user's mental model ("my chats"), then generated projects.
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (projects.isEmpty() && chatMessages.size <= 1) {
+                    if (chatSessions.isEmpty() && projects.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -845,6 +835,77 @@ fun AgentChatScreen(
                                     color = AppTextSecondary
                                 )
                             }
+                        }
+                    }
+
+                    if (chatSessions.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "历史对话",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AppTextSecondary
+                            )
+                        }
+                        items(chatSessions, key = { it.id }) { session ->
+                            val isActive = session.id == activeSessionId
+                            Surface(
+                                onClick = {
+                                    viewModel.selectChatSession(session.id)
+                                    showHistoryDrawer = false
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isActive) AgnesViolet.copy(alpha = 0.18f) else AppSubtleBg,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isActive) AgnesViolet else AppCardBorder
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Chat,
+                                        contentDescription = null,
+                                        tint = if (isActive) AgnesCyan else AppTextSecondary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = session.title,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                                        color = AppTextPrimary,
+                                        maxLines = 1,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.deleteChatSession(session.id) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "删除对话",
+                                            tint = AppTextSecondary,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        item { Spacer(modifier = Modifier.height(4.dp)) }
+                    }
+
+                    if (projects.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "创作项目",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AppTextSecondary
+                            )
                         }
                     }
 

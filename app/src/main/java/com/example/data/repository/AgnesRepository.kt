@@ -9,6 +9,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
+import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
 import com.example.data.model.ProjectType
@@ -32,6 +33,9 @@ class AgnesRepository(
     private val prefs: SharedPreferences = context.getSharedPreferences("agnes_prefs", Context.MODE_PRIVATE)
 
     companion object {
+        /** Placeholder title for a conversation that has not received its first user turn. */
+        const val DEFAULT_SESSION_TITLE = "新对话"
+
         /** Lowest selectable storyboard scene count. */
         const val MIN_SCENE_COUNT = 1
 
@@ -83,7 +87,11 @@ class AgnesRepository(
 
     // Observe projects & clips
     val allProjects: Flow<List<GenerationProject>> = database.projectDao().getAllProjects()
-    val chatMessages: Flow<List<ChatMessage>> = database.chatMessageDao().getAllMessages()
+    val chatSessions: Flow<List<ChatSession>> = database.chatSessionDao().getAllSessions()
+
+    /** Messages belonging to one conversation, oldest first. */
+    fun getMessagesForSession(sessionId: String): Flow<List<ChatMessage>> =
+        database.chatMessageDao().getMessagesForSession(sessionId)
     val rateLimitState: StateFlow<RateLimitState> = rateLimitManager.rateLimitState
 
     /**
@@ -756,17 +764,28 @@ class AgnesRepository(
         )
     }
 
-    suspend fun sendChatMessage(userText: String, attachedImageUri: String? = null): ChatMessage {
+    suspend fun sendChatMessage(sessionId: String, userText: String, attachedImageUri: String? = null): ChatMessage {
         val userMsg = ChatMessage(
+            sessionId = sessionId,
             sender = "user",
             content = userText,
             attachedImageUri = attachedImageUri
         )
         database.chatMessageDao().insertMessage(userMsg)
+        // Bump recency and, on the first user turn, derive a readable conversation title.
+        val session = database.chatSessionDao().getSessionById(sessionId)
+        val now = System.currentTimeMillis()
+        val title = if (session != null && session.title == DEFAULT_SESSION_TITLE && userText.isNotBlank()) {
+            userText.trim().replace("\n", " ").take(20)
+        } else {
+            session?.title ?: DEFAULT_SESSION_TITLE
+        }
+        database.chatSessionDao().updateSessionTitle(sessionId, title, now)
         return userMsg
     }
 
     suspend fun saveAgentReply(
+        sessionId: String,
         replyText: String,
         relatedProjectId: String? = null,
         actionType: String? = null,
@@ -776,6 +795,7 @@ class AgnesRepository(
         documentSize: String? = null
     ): ChatMessage {
         val agentMsg = ChatMessage(
+            sessionId = sessionId,
             sender = "agnes_agent",
             content = replyText,
             relatedProjectId = relatedProjectId,
@@ -786,7 +806,39 @@ class AgnesRepository(
             documentSize = documentSize
         )
         database.chatMessageDao().insertMessage(agentMsg)
+        database.chatSessionDao().touchSession(sessionId, System.currentTimeMillis())
         return agentMsg
+    }
+
+    /**
+     * Return the most recent conversation, creating one (and adopting any pre-session rows)
+     * when none exists yet. Guarantees a non-null session id for the chat screen.
+     */
+    suspend fun ensureActiveSession(): String {
+        val existing = database.chatSessionDao().getMostRecentSession()
+        if (existing != null) {
+            database.chatMessageDao().assignOrphanMessages(existing.id)
+            return existing.id
+        }
+        val session = ChatSession()
+        database.chatSessionDao().insertSession(session)
+        database.chatMessageDao().assignOrphanMessages(session.id)
+        return session.id
+    }
+
+    /** Start a brand-new empty conversation and return its id. */
+    suspend fun createChatSession(): String {
+        val session = ChatSession()
+        database.chatSessionDao().insertSession(session)
+        return session.id
+    }
+
+    suspend fun countMessagesForSession(sessionId: String): Int =
+        database.chatMessageDao().countMessagesForSession(sessionId)
+
+    suspend fun deleteChatSession(sessionId: String) {
+        database.chatMessageDao().deleteMessagesForSession(sessionId)
+        database.chatSessionDao().deleteSessionById(sessionId)
     }
 
     suspend fun deleteProject(project: GenerationProject) {
@@ -796,5 +848,4 @@ class AgnesRepository(
 
     suspend fun clearChatHistory() {
         database.chatMessageDao().clearAllMessages()
-    }
-}
+    }}
