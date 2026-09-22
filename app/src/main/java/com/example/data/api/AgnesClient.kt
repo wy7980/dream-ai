@@ -576,32 +576,45 @@ class AgnesClient(
                             promptParts.add("continue seamlessly from the previous shot; keep the same subject, wardrobe, lighting and color grading")
                         }
                         val basePrompt = promptParts.joinToString(", ")
-                        // In reference mode the API expects the input image to be addressed as <Picture 1>.
-                        put("prompt", if (imageDataUri != null) "<Picture 1> $basePrompt" else basePrompt)
+                        // NOTE: the 2.5 series anchors continuity with `mode:"keyframe"` + `first_frame`
+                        // (see the branches below), NOT with a style reference. The old `<Picture 1>`
+                        // prefix is reference-mode syntax: it made the model merely borrow the look of
+                        // the previous frame instead of continuing its motion, which is exactly why the
+                        // hand-off looked unnatural. It must not be emitted here.
+                        put("prompt", basePrompt)
 
                         when {
                             // Agnes Video 2.5 Flash: `mode` is REQUIRED; size is fixed to 720P; duration is `seconds` ("4"-"12")
                             effectiveModel.contains("2.5-flash", ignoreCase = true) ||
                             effectiveModel.contains("25-flash", ignoreCase = true) ||
                             effectiveModel.contains("2.5_flash", ignoreCase = true) -> {
-                                put("mode", if (imageDataUri != null) "reference" else "text")
+                                // `keyframe` + `first_frame` pins the opening frame to the previous clip's
+                                // last frame (or the user's image for scene 1), so consecutive shots truly
+                                // continue instead of merely sharing a look. `text` when there is no image.
+                                if (imageDataUri != null) {
+                                    put("mode", "keyframe")
+                                    put("first_frame", imageDataUri)
+                                } else {
+                                    put("mode", "text")
+                                }
                                 put("size", "720P")
                                 put("aspect_ratio", normalizedAspectRatio)
                                 put("seconds", sceneDuration.coerceIn(4, 12).toString())
-                                if (imageDataUri != null) {
-                                    // Reference mode expects an array of image URLs / Data URIs.
-                                    put("images", JSONArray().put(imageDataUri))
-                                }
+                                // The 2.5 series accepts `seed` too; it keeps the render stable across re-runs.
+                                if (seed != null) put("seed", seed)
                             }
                             // Agnes Video 2.5 Standard: same contract as Flash (`mode` required, `seconds` duration)
                             effectiveModel.contains("2.5", ignoreCase = true) || effectiveModel.contains("25", ignoreCase = true) -> {
-                                put("mode", if (imageDataUri != null) "reference" else "text")
+                                if (imageDataUri != null) {
+                                    put("mode", "keyframe")
+                                    put("first_frame", imageDataUri)
+                                } else {
+                                    put("mode", "text")
+                                }
                                 put("size", "720P")
                                 put("aspect_ratio", normalizedAspectRatio)
                                 put("seconds", sceneDuration.coerceIn(4, 12).toString())
-                                if (imageDataUri != null) {
-                                    put("images", JSONArray().put(imageDataUri))
-                                }
+                                if (seed != null) put("seed", seed)
                             }
                             // Agnes Video V2.0: width, height, num_frames (121 or 241), frame_rate (24), `image` for i2v
                             effectiveModel.contains("v2.0", ignoreCase = true) ||
