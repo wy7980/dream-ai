@@ -27,6 +27,7 @@ import com.example.data.model.SceneClip
 import com.example.data.model.TavilySearchResponse
 import com.example.data.model.TavilySearchResultItem
 import com.example.data.model.VideoSceneLimits
+import com.example.data.model.VideoDurationLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -55,7 +56,17 @@ data class VideoClipResult(
  */
 data class VideoScript(
     val scenes: List<SceneClip>,
-    val styleBible: String? = null
+    val styleBible: String? = null,
+    /**
+     * Scene count the director model recommends for this material. Equal to `scenes.size` when the
+     * model planned freely; when the caller pinned a count it echoes that count back.
+     */
+    val recommendedSceneCount: Int = scenes.size,
+    /**
+     * Per-scene duration (seconds) the director model recommends. Only meaningful on the auto path;
+     * null when the model did not express a preference (caller keeps its own default).
+     */
+    val recommendedDurationPerScene: Int? = null
 )
 
 class AgnesClient(
@@ -488,14 +499,22 @@ class AgnesClient(
 
     /**
      * Step 1: AI Video Script Planning
-     * Deconstructs image & story concept into 3-5 cinematic sequential scene scripts
+     *
+     * Deconstructs an idea/image into a cinematic sequential storyboard. Two modes:
+     * - Pinned: `sceneCount` in [1,20] and `durationPerScene` in [4,12] are obeyed exactly.
+     * - Auto: pass [VideoSceneLimits.AUTO] / [VideoDurationLimits.AUTO] and the director model
+     *   decides both from the material (e.g. a 4-line Tang poem -> 4 shots, one line each), so the
+     *   content-coverage rule can be satisfied without the user guessing the numbers.
      */
     suspend fun generateVideoScript(
         config: AgnesApiConfig,
         themePrompt: String,
         sceneCount: Int = VideoSceneLimits.DEFAULT,
-        stylePreset: String = "Cinematic 3D"
+        stylePreset: String = "Cinematic 3D",
+        durationPerScene: Int = VideoDurationLimits.DEFAULT
     ): Result<VideoScript> = withContext(Dispatchers.IO) {
+        val autoSceneCount = sceneCount == VideoSceneLimits.AUTO
+        val autoDuration = durationPerScene == VideoDurationLimits.AUTO
         val effectiveSceneCount = VideoSceneLimits.clamp(sceneCount)
         rateLimitManager.executeRateLimited("Agnes 分镜脚本智能规划") {
             try {
@@ -503,21 +522,49 @@ class AgnesClient(
                 if (provider.apiKey.isNotBlank()) {
                     val base = provider.endpointUrl.trim().removeSuffix("/")
                     val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
+
+                    val sceneCountRule = if (autoSceneCount) {
+                        "SCENE COUNT (AUTO): You decide how many scenes this material needs. Count the material's natural units first (a 4-line Tang poem -> 4 shots, one line each; a 3-act story -> 3-5 shots), then emit exactly that many. Keep it within 1..${VideoSceneLimits.MAX}. Prefer one scene per natural unit so nothing is crammed together."
+                    } else {
+                        "SCENE COUNT (FIXED): Emit exactly $effectiveSceneCount scenes."
+                    }
+
+                    val durationRule = if (autoDuration) {
+                        "PER-SCENE DURATION (AUTO): You decide each scene's durationSeconds within ${VideoDurationLimits.MIN}..${VideoDurationLimits.MAX}. Set a value that fits that scene's narration length at a natural pace (a short line ~${VideoDurationLimits.MIN}s, a long descriptive line up to ${VideoDurationLimits.MAX}s). Also fill `recommendedDurationPerScene` with ONE integer you recommend applying uniformly across all scenes."
+                    } else {
+                        "PER-SCENE DURATION (FIXED): Set durationSeconds = $durationPerScene on every scene and `recommendedDurationPerScene` = $durationPerScene."
+                    }
+
                     val systemPrompt = """
-                        You are Dream AI Film Director. Create a $effectiveSceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
+                        You are Dream AI Film Director（Dream AI 电影导演）. Create a video storyboard script based on the user's idea and style: $stylePreset.
 
-                        FIRST, define a single GLOBAL "styleBible" that every scene MUST obey so the clips look like one continuous film:
-                        - protagonist: exact appearance (age, hair, face, wardrobe, key props) — keep identical across all scenes
-                        - environment: exact location, era, time of day, weather
-                        - lighting: consistent light direction, mood and time-of-day progression
-                        - colorGrading: consistent palette and film look
-                        - cameraLanguage: consistent lens/framing style and motion grammar
-                        - continuityNote: how each scene flows from the previous one's ending (for seamless stitching)
+                        LANGUAGE RULE (MANDATORY):
+                        - EVERY text field you output MUST be in Simplified Chinese (简体中文): styleBible values, sceneTitle, visualPrompt, cameraMovement, narration.
+                        - Do NOT output English sentences. Proper nouns / brand names may keep their original form.
 
-                        Then create the $effectiveSceneCount scenes. Each scene's visualPrompt MUST re-state the protagonist / environment / lighting / colorGrading so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
+                        CONTENT COVERAGE RULE (MANDATORY):
+                        - FIRST enumerate every distinct element of the user's material as a private checklist: every sentence / line / verse / beat / key detail.
+                        - Every element MUST be covered by some scene's narration AND visualized in that scene. Nothing may be dropped, merged away, or paraphrased out of existence.
+                        - For quoted material (e.g. a Tang poem 唐诗), each original line MUST appear VERBATIM in the narration of the scene that shows it.
+                        - The union of all scenes MUST cover 100% of the elements. Never drop a line to save scenes.
+
+                        $sceneCountRule
+
+                        $durationRule
+
+                        FIRST, define a single GLOBAL "styleBible" (中文) that every scene MUST obey so the clips look like one continuous film:
+                        - 主角：确切外貌（年龄、发型、面容、服装、关键道具）——所有分镜保持完全一致
+                        - 环境：确切地点、年代、时段、天气
+                        - 光照：一致的光位、情绪与时间推进
+                        - 调色：一致的色彩与影调风格
+                        - 镜头语言：一致的焦段/构图风格与运镜语法
+                        - 连续性说明：每一幕如何从上、一幕结尾自然承接（为无缝拼接服务）
+
+                        Then create the scenes. Each scene's visualPrompt MUST re-state the 主角 / 环境 / 光照 / 调色 so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
 
                         Return strict JSON, no markdown:
                         {
+                          "recommendedDurationPerScene": 5,
                           "styleBible": {
                             "protagonist": "...",
                             "environment": "...",
@@ -529,11 +576,11 @@ class AgnesClient(
                           "scenes": [
                             {
                               "sceneNumber": 1,
-                              "sceneTitle": "...",
-                              "visualPrompt": "detailed English video prompt, restating the protagonist and environment",
-                              "cameraMovement": "e.g. Slow Zoom In / Drone Flyover / Panning Left to Right / 360 Orbit",
-                              "narration": "cinematic narration or dialogue",
-                              "durationSeconds": 10
+                              "sceneTitle": "中文分镜标题",
+                              "visualPrompt": "中文画面提示词，复述主角与环境、光照、调色",
+                              "cameraMovement": "中文运镜，如：缓慢推近 / 航拍飞越 / 左到右横摇 / 360度环绕",
+                              "narration": "中文旁白或对白；若该幕呈现原文（如诗句），必须逐字照录原文",
+                              "durationSeconds": 5
                             }
                           ]
                         }
@@ -541,7 +588,12 @@ class AgnesClient(
 
                     val messages = JSONArray().apply {
                         put(JSONObject().put("role", "system").put("content", systemPrompt))
-                        put(JSONObject().put("role", "user").put("content", "Idea: $themePrompt"))
+                        put(
+                            JSONObject().put("role", "user").put(
+                                "content",
+                                "创作素材/主题（其中的每一句、每一行、每个关键元素都必须在分镜脚本中逐条覆盖，不得遗漏）：\n$themePrompt"
+                            )
+                        )
                     }
 
                     val requestJson = JSONObject().apply {
@@ -569,10 +621,26 @@ class AgnesClient(
 
                         val parsedScenes = parseScriptJson(content)
                         if (parsedScenes.isNotEmpty()) {
+                            val modelDuration = parseRecommendedDuration(content)
+                            val scenes = if (autoDuration) {
+                                // Auto duration: let each scene keep its own model-chosen length, but
+                                // fall back to the uniform recommendation / default when it is missing
+                                // or out of contract.
+                                val uniform = modelDuration ?: VideoDurationLimits.DEFAULT
+                                parsedScenes.map { scene ->
+                                    val perScene = scene.durationSeconds
+                                    val resolved = if (perScene in VideoDurationLimits.MIN..VideoDurationLimits.MAX) perScene else uniform
+                                    scene.copy(durationSeconds = resolved)
+                                }
+                            } else {
+                                parsedScenes.map { it.copy(durationSeconds = durationPerScene) }
+                            }
                             return@executeRateLimited Result.success(
                                 VideoScript(
-                                    scenes = parsedScenes,
-                                    styleBible = parseStyleBible(content)
+                                    scenes = scenes,
+                                    styleBible = parseStyleBible(content),
+                                    recommendedSceneCount = scenes.size,
+                                    recommendedDurationPerScene = modelDuration ?: if (autoDuration) null else durationPerScene
                                 )
                             )
                         }
@@ -581,10 +649,19 @@ class AgnesClient(
 
                 // Fallback smart script generator
                 delay(1500L)
-                val scenes = createCuratedStoryboard(themePrompt, effectiveSceneCount, stylePreset)
-                Result.success(VideoScript(scenes = scenes, styleBible = null))
+                val fallbackCount = if (autoSceneCount) inferSceneCountFromMaterial(themePrompt) else effectiveSceneCount
+                val scenes = createCuratedStoryboard(themePrompt, fallbackCount, stylePreset)
+                Result.success(
+                    VideoScript(
+                        scenes = scenes,
+                        styleBible = null,
+                        recommendedSceneCount = scenes.size,
+                        recommendedDurationPerScene = if (autoDuration) VideoDurationLimits.DEFAULT else durationPerScene
+                    )
+                )
             } catch (e: Exception) {
-                val scenes = createCuratedStoryboard(themePrompt, effectiveSceneCount, stylePreset)
+                val fallbackCount = if (autoSceneCount) inferSceneCountFromMaterial(themePrompt) else effectiveSceneCount
+                val scenes = createCuratedStoryboard(themePrompt, fallbackCount, stylePreset)
                 Result.success(VideoScript(scenes = scenes, styleBible = null))
             }
         }
@@ -670,16 +747,16 @@ class AgnesClient(
                         put("model", effectiveModel)
                         val promptParts = mutableListOf<String>()
                         promptParts.add(scene.visualPrompt)
-                        promptParts.add("camera movement: ${scene.cameraMovement}")
-                        promptParts.add("style: $stylePreset")
+                        promptParts.add("运镜：${scene.cameraMovement}")
+                        promptParts.add("风格：$stylePreset")
                         if (!styleBible.isNullOrBlank()) {
-                            promptParts.add("maintain strict visual continuity with: $styleBible")
+                            promptParts.add("严格保持与全局风格设定一致的画面连续性：$styleBible")
                         }
                         if (!prevFrameImageUri.isNullOrBlank()) {
-                            promptParts.add("continue seamlessly from the previous shot; keep the same subject, wardrobe, lighting and color grading")
+                            promptParts.add("从上一镜头无缝延续；保持相同的主体、服装、光照与调色")
                         }
                         if (!lastFrameDataUri.isNullOrBlank()) {
-                            promptParts.add("end the shot exactly on the provided final-frame composition; the motion must flow smoothly from the first frame to the last")
+                            promptParts.add("镜头须准确收束于给定尾帧的构图；运动从首帧到尾帧平滑流动")
                         }
                         val basePrompt = promptParts.joinToString(", ")
                         // NOTE: the 2.5 series anchors continuity with `mode:"keyframe"` + `first_frame`
@@ -1815,6 +1892,43 @@ class AgnesClient(
         return file
     }
 
+    /**
+     * Read the director model's uniform per-scene duration recommendation, clamped to the supported
+     * window. Returns null when absent / unparsable so the caller keeps its own default.
+     */
+    private fun parseRecommendedDuration(jsonString: String): Int? {
+        return try {
+            val cleanJson = jsonString.substringAfter("{").substringBeforeLast("}")
+            val root = JSONObject("$cleanJson")
+            if (!root.has("recommendedDurationPerScene")) return null
+            val raw = root.optInt("recommendedDurationPerScene", -1)
+            if (raw <= 0) null else VideoDurationLimits.clamp(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Offline fallback for the auto-scene-count path: when the director model is unreachable, infer a
+     * sensible scene count straight from the material so we still honour "one scene per natural
+     * unit" (e.g. a 4-line Tang poem -> 4 scenes) instead of dumping everything into one shot.
+     */
+    private fun inferSceneCountFromMaterial(material: String): Int {
+        val lines = material.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        // Chinese material is usually written without spaces, so count content-bearing lines first;
+        // fall back to sentence-ending punctuation when the whole thing arrives on one line.
+        val units = if (lines.size > 1) {
+            lines.size
+        } else {
+            material.split('。', '！', '？', '；', '\n', '，')
+                .map { it.trim() }
+                .count { it.isNotBlank() }
+        }
+        return VideoSceneLimits.clamp(units.coerceAtLeast(VideoSceneLimits.MIN))
+    }
+
     private fun parseScriptJson(jsonString: String): List<SceneClip> {
         val result = mutableListOf<SceneClip>()
         try {
@@ -1841,13 +1955,13 @@ class AgnesClient(
 
     private fun createCuratedStoryboard(theme: String, count: Int, style: String): List<SceneClip> {
         val templates = listOf(
-            Triple("启幕：宏大世界观展现", "Slow Aerial Zoom Out over stunning futuristic landscape with dramatic neon skyline and atmospheric volumetric lighting", "缓慢推远俯瞰，展现宏伟世界全貌与晨曦光影"),
-            Triple("聚焦：关键主体与动态张力", "Dynamic Tracking Shot following the central protagonist discovering a pulsating quantum crystal anomaly", "低角度跟镜头推进，捕捉主体神秘能量脉动"),
-            Triple("递进：环境探索与线索浮现", "Handheld Parallax Push through a rain-slicked neon alley as holographic clues flicker to life", "手持视差推进，霓虹雨巷中全息线索逐一亮起"),
-            Triple("高潮：能量爆发与视觉冲击", "Fast Dolly In & Orbiting 360 Shot during energy surge with glowing particle cascades and hyperspace warping", "全方位旋转环绕特写，能量波纹与光子粒子爆发扩散"),
-            Triple("转折：危机与抉择时刻", "Slow-Motion Crash Zoom onto the protagonist's face as alarms flare and debris drifts past", "升格急推特写，警报闪烁、碎片掠过，危机与抉择降临"),
-            Triple("尾声：电影级史诗定格", "Cinematic Sunset Crane Shot rising slowly into the starry twilight as peace returns to the neon horizon", "摇臂镜头升起，星空与余晖交织，定格电影级史诗终章"),
-            Triple("余韵：未来无限延展", "Macro lens slowly shifting focus from neon dewdrop to boundless cosmos reflection", "微距焦点转移，水滴中折射无垠宇宙光芒")
+            Triple("启幕：宏大世界观展现", "航拍缓慢推远俯瞰未来都市全景，霓虹天际线与体积光渲染，晨曦穿透云层", "缓慢推远俯瞰，展现宏伟世界全貌与晨曦光影"),
+            Triple("聚焦：关键主体与动态张力", "低角度跟拍镜头，主角发现脉动的量子晶体异常，能量微光映照面部", "低角度跟镜头推进，捕捉主体神秘能量脉动"),
+            Triple("递进：环境探索与线索浮现", "手持视差推进穿过雨夜霓虹窄巷，全息线索逐一亮起，湿地倒影反射光斑", "手持视差推进，霓虹雨巷中全息线索逐一亮起"),
+            Triple("高潮：能量爆发与视觉冲击", "快速推近并360度环绕拍摄能量爆发，发光粒子瀑布扩散，空间扭曲", "全方位旋转环绕特写，能量波纹与光子粒子爆发扩散"),
+            Triple("转折：危机与抉择时刻", "升格急推特写主角面部，警报红光闪烁，碎片缓缓掠过，紧张氛围", "升格急推特写，警报闪烁、碎片掠过，危机与抉择降临"),
+            Triple("尾声：电影级史诗定格", "电影感日落摇臂镜头缓缓升起，星空与暮色交融，霓虹地平线归于平静", "摇臂镜头升起，星空与余晖交织，定格电影级史诗终章"),
+            Triple("余韵：未来无限延展", "微距镜头焦点由霓虹露珠缓慢转移到其中折射的无垠宇宙", "微距焦点转移，水滴中折射无垠宇宙光芒")
         )
 
         // Scene count is user-selectable from 1 to 20; keep the fallback storyboard in the
@@ -1855,16 +1969,16 @@ class AgnesClient(
         return (0 until VideoSceneLimits.clamp(count)).map { i ->
             val template = templates[i % templates.size]
             val camera = when (i % 4) {
-                0 -> "航拍远景下压 (Aerial Crane Down)"
-                1 -> "动态侧向跟焦 (Tracking Shot)"
-                2 -> "360度环绕升格 (360 Orbit Slow-Mo)"
-                else -> "缓慢推近特写 (Dolly-In Close-Up)"
+                0 -> "航拍远景下压"
+                1 -> "动态侧向跟焦"
+                2 -> "360度环绕升格"
+                else -> "缓慢推近特写"
             }
             SceneClip(
                 projectId = "",
                 sceneNumber = i + 1,
                 sceneTitle = template.first,
-                visualPrompt = "${template.second}, style: $style, theme: $theme, ultra photorealistic, 8k render, unreal engine 5 cinematics",
+                visualPrompt = "${template.second}，风格：$style，主题：$theme，超写实，8K 渲染，电影级质感",
                 cameraMovement = camera,
                 narration = "第${i + 1}幕：${template.third}，故事在「$theme」中徐徐展开。",
                 durationSeconds = 10

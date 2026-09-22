@@ -92,6 +92,9 @@ interface SceneClipDao {
 
     @Query("DELETE FROM scene_clips WHERE projectId = :projectId")
     suspend fun deleteClipsForProject(projectId: String)
+
+    @Query("DELETE FROM scene_clips WHERE id = :clipId")
+    suspend fun deleteClipById(clipId: String)
 }
 
 @Dao
@@ -150,7 +153,7 @@ interface ChatMessageDao {
 
 @Database(
     entities = [GenerationProject::class, SceneClip::class, ChatMessage::class, ChatSession::class],
-    version = 4, // v4: ChatSession (conversation history) + ChatMessage.sessionId
+    version = 5, // v5: SceneClip.isDraft + GenerationStatus.AWAITING_REVIEW (two-phase video pipeline)
     exportSchema = false
 )
 @TypeConverters(Converters::class)

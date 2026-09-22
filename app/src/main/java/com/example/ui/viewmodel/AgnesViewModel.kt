@@ -17,6 +17,7 @@ import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
 import com.example.data.model.VideoDurationLimits
+import com.example.data.model.VideoSceneLimits
 import com.example.data.repository.AgnesRepository
 import com.example.data.skill.AgentDecision
 import com.example.data.skill.AgentDecisionEngine
@@ -354,6 +355,11 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * One-shot entry point for the agent/skill path: plan the storyboard, then render it
+     * immediately. The interactive video screen instead calls [planVideoProject] and lets the user
+     * confirm/edit before calling [generateVideoProject].
+     */
     fun startVideoPipeline(
         themePrompt: String,
         sourceImageUri: String?,
@@ -368,23 +374,16 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             _toastMessage.value = "请输入视频主题或上传参考图片"
             return
         }
-
-        // Defensive clamp: the UI only offers 1..20, but the agent/skill path may call in
-        // directly, and each scene costs one rate-limited video request.
-        val safeSceneCount = sceneCount.coerceIn(
-            AgnesRepository.MIN_SCENE_COUNT,
-            AgnesRepository.MAX_SCENE_COUNT
-        )
-        // Same defensive clamp for the per-scene duration (API contract: 4..12s).
-        val safeDurationPerScene = VideoDurationLimits.clamp(durationPerScene)
+        val safeSceneCount = safeSceneCount(sceneCount)
+        val safeDurationPerScene = safeDurationPerScene(durationPerScene)
 
         videoJob?.cancel()
         videoJob = viewModelScope.launch {
             try {
                 _isVideoGenerating.value = true
-                _videoProgressMessage.value = "正在启动多段视频生成流水线..."
+                _videoProgressMessage.value = "正在规划分镜脚本..."
 
-                val result = repository.startFullVideoPipeline(
+                val planResult = repository.planVideoProject(
                     themePrompt = themePrompt,
                     sourceImageUri = sourceImageUri,
                     sceneCount = safeSceneCount,
@@ -392,11 +391,100 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                     videoModel = videoModel,
                     aspectRatio = aspectRatio,
                     durationPerScene = safeDurationPerScene,
-                    onProgress = { msg ->
-                        _videoProgressMessage.value = msg
-                    }
+                    onProgress = { msg -> _videoProgressMessage.value = msg }
                 )
+                if (planResult.isFailure) {
+                    _toastMessage.value = "分镜规划失败: ${planResult.exceptionOrNull()?.message}"
+                    return@launch
+                }
+                val planned = planResult.getOrThrow()
+                selectProject(planned)
 
+                val genResult = repository.generateProjectVideo(
+                    projectId = planned.id,
+                    onProgress = { msg -> _videoProgressMessage.value = msg }
+                )
+                if (genResult.isSuccess) {
+                    val proj = genResult.getOrThrow()
+                    selectProject(proj)
+                    _toastMessage.value = "视频流水线已完成！多段视频已拼接合成。"
+                    onSuccess(proj)
+                } else {
+                    _toastMessage.value = "视频生成失败: ${genResult.exceptionOrNull()?.message}"
+                }
+            } finally {
+                _isVideoGenerating.value = false
+                _videoProgressMessage.value = ""
+            }
+        }
+    }
+
+    /**
+     * Phase 1 (interactive): plan the storyboard and stop at the review step. No rate-limited video
+     * request is spent here, so the user can adjust the scene count / prompts / duration first.
+     */
+    fun planVideoProject(
+        themePrompt: String,
+        sourceImageUri: String?,
+        sceneCount: Int = VideoSceneLimits.AUTO,
+        stylePreset: String = "Cinematic 3D",
+        videoModel: String? = null,
+        aspectRatio: String = "16:9",
+        durationPerScene: Int = VideoDurationLimits.AUTO,
+        onSuccess: (GenerationProject) -> Unit = {}
+    ) {
+        if (themePrompt.isBlank() && sourceImageUri == null) {
+            _toastMessage.value = "请输入视频主题或上传参考图片"
+            return
+        }
+        videoJob?.cancel()
+        videoJob = viewModelScope.launch {
+            try {
+                _isVideoGenerating.value = true
+                _videoProgressMessage.value = "AI 正在规划分镜脚本..."
+                val result = repository.planVideoProject(
+                    themePrompt = themePrompt,
+                    sourceImageUri = sourceImageUri,
+                    sceneCount = safeSceneCount(sceneCount),
+                    stylePreset = stylePreset,
+                    videoModel = videoModel,
+                    aspectRatio = aspectRatio,
+                    durationPerScene = safeDurationPerScene(durationPerScene),
+                    onProgress = { msg -> _videoProgressMessage.value = msg }
+                )
+                if (result.isSuccess) {
+                    val proj = result.getOrThrow()
+                    selectProject(proj)
+                    _toastMessage.value = "AI 已规划 ${proj.totalClips} 幕，可调整后点击生成"
+                    onSuccess(proj)
+                } else {
+                    _toastMessage.value = "分镜规划失败: ${result.exceptionOrNull()?.message}"
+                }
+            } finally {
+                _isVideoGenerating.value = false
+                _videoProgressMessage.value = ""
+            }
+        }
+    }
+
+    /**
+     * Phase 2 (interactive): render every not-yet-rendered scene of an already-planned project and
+     * stitch. Works as "只生成还没生成的幕" after the user tweaks the storyboard.
+     */
+    fun generateVideoProject(projectId: String, onSuccess: (GenerationProject) -> Unit = {}) {
+        if (projectId.isBlank()) {
+            _toastMessage.value = "项目不存在"
+            return
+        }
+        videoJob?.cancel()
+        videoJob = viewModelScope.launch {
+            try {
+                _isVideoGenerating.value = true
+                _videoProgressMessage.value = "正在启动多段视频生成流水线..."
+                val result = repository.generateProjectVideo(
+                    projectId = projectId,
+                    onProgress = { msg -> _videoProgressMessage.value = msg }
+                )
                 if (result.isSuccess) {
                     val proj = result.getOrThrow()
                     selectProject(proj)
@@ -410,6 +498,30 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                 _videoProgressMessage.value = ""
             }
         }
+    }
+
+    /** Review-phase adjustment: apply one per-scene duration to every scene of the plan. */
+    fun setSceneDuration(projectId: String, durationSeconds: Int) {
+        viewModelScope.launch {
+            repository.setProjectSceneDuration(projectId, durationSeconds)
+            _selectedProject.value?.let { current ->
+                if (current.id == projectId) {
+                    repository.getProjectDirect(projectId)?.let { _selectedProject.value = it }
+                }
+            }
+        }
+    }
+
+    private fun safeSceneCount(sceneCount: Int): Int = if (sceneCount == VideoSceneLimits.AUTO) {
+        VideoSceneLimits.AUTO
+    } else {
+        sceneCount.coerceIn(AgnesRepository.MIN_SCENE_COUNT, AgnesRepository.MAX_SCENE_COUNT)
+    }
+
+    private fun safeDurationPerScene(durationPerScene: Int): Int = if (durationPerScene == VideoDurationLimits.AUTO) {
+        VideoDurationLimits.AUTO
+    } else {
+        VideoDurationLimits.clamp(durationPerScene)
     }
 
     /**
@@ -485,6 +597,19 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                         _selectedProject.value = fresh
                     }
                 }
+            }
+        }
+    }
+
+    /** Review-phase action: remove one not-yet-rendered scene and renumber the plan. */
+    fun deleteSceneClip(projectId: String, clipId: String) {
+        viewModelScope.launch {
+            val result = repository.deleteSceneClip(projectId, clipId)
+            if (result.isSuccess) {
+                _toastMessage.value = "已删除该分镜"
+                repository.getProjectDirect(projectId)?.let { _selectedProject.value = it }
+            } else {
+                _toastMessage.value = "删除分镜失败: ${result.exceptionOrNull()?.message}"
             }
         }
     }

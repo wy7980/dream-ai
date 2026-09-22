@@ -16,6 +16,7 @@ import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
 import com.example.data.model.VideoDurationLimits
+import com.example.data.model.VideoSceneLimits
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,37 +47,37 @@ class AgnesRepository(
         private val FALLBACK_SCENE_TEMPLATES = listOf(
             Triple(
                 "启幕：宏大世界观展现",
-                "Slow Aerial Zoom Out over a stunning futuristic landscape with dramatic neon skyline and atmospheric volumetric lighting",
+                "航拍缓慢推远俯瞰未来都市全景，霓虹天际线与体积光渲染，晨曦穿透云层",
                 "缓慢推远俯瞰，展现宏伟世界全貌与晨曦光影"
             ),
             Triple(
                 "聚焦：关键主体与动态张力",
-                "Dynamic Tracking Shot following the central protagonist discovering a pulsating quantum crystal anomaly",
+                "低角度跟拍镜头，主角发现脉动的量子晶体异常，能量微光映照面部",
                 "低角度跟镜头推进，捕捉主体神秘能量脉动"
             ),
             Triple(
                 "递进：环境探索与线索浮现",
-                "Handheld Parallax Push through a rain-slicked neon alley as holographic clues flicker to life",
+                "手持视差推进穿过雨夜霓虹窄巷，全息线索逐一亮起，湿地倒影反射光斑",
                 "手持视差推进，霓虹雨巷中全息线索逐一亮起"
             ),
             Triple(
                 "高潮：能量爆发与视觉冲击",
-                "Fast Dolly In & Orbiting 360 Shot during an energy surge with glowing particle cascades and hyperspace warping",
+                "快速推近并360度环绕拍摄能量爆发，发光粒子瀑布扩散，空间扭曲",
                 "全方位旋转环绕特写，能量波纹与光子粒子爆发扩散"
             ),
             Triple(
                 "转折：危机与抉择时刻",
-                "Slow-Motion Crash Zoom onto the protagonist's face as alarms flare and debris drifts past",
+                "升格急推特写主角面部，警报红光闪烁，碎片缓缓掠过，紧张氛围",
                 "升格急推特写，警报闪烁、碎片掠过，危机与抉择降临"
             ),
             Triple(
                 "尾声：电影级史诗定格",
-                "Cinematic Sunset Crane Shot rising slowly into the starry twilight as peace returns to the neon horizon",
+                "电影感日落摇臂镜头缓缓升起，星空与暮色交融，霓虹地平线归于平静",
                 "摇臂镜头升起，星空与余晖交织，定格电影级史诗终章"
             ),
             Triple(
                 "余韵：未来无限延展",
-                "Macro lens slowly shifting focus from a neon dewdrop to the boundless cosmos reflected within it",
+                "微距镜头焦点由霓虹露珠缓慢转移到其中折射的无垠宇宙",
                 "微距焦点转移，水滴中折射无垠宇宙光芒"
             )
         )
@@ -311,28 +312,37 @@ class AgnesRepository(
     }
 
     /**
-     * Complete Pipeline:
-     * 1. Plan Video Script (Scene Clips)
-     * 2. Sequential Rate-Limited Generation for each clip (1 per 60s)
-     * 3. Stitch into Master Video
+     * Phase 1 of the video pipeline: plan the storyboard only.
+     *
+     * This deliberately does NOT spend any rate-limited video request. It resolves the scene
+     * count and per-scene duration (either from the caller or, in AUTO mode, from the director
+     * model), writes the planned scenes as drafts, and parks the project in
+     * [GenerationStatus.AWAITING_REVIEW] so the user can adjust the storyboard before rendering.
+     *
+     * Render with [generateProjectVideo] once the plan is confirmed.
      */
-    suspend fun startFullVideoPipeline(
+    suspend fun planVideoProject(
         themePrompt: String,
         sourceImageUri: String?,
-        sceneCount: Int = 4,
+        sceneCount: Int = VideoSceneLimits.AUTO,
         stylePreset: String = "Cinematic 3D",
         videoModel: String? = null,
         aspectRatio: String = "16:9",
-        durationPerScene: Int = VideoDurationLimits.DEFAULT,
+        durationPerScene: Int = VideoDurationLimits.AUTO,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
-        // Scene count is user-selectable from 1 to 20; clamp defensively so a bad caller
-        // can never enqueue an unbounded number of rate-limited video requests.
-        val requestedSceneCount = sceneCount.coerceIn(MIN_SCENE_COUNT, MAX_SCENE_COUNT)
-        // Per-scene duration is user-selectable from 4 to 12s; clamp so a bad caller can never
-        // push an out-of-contract `seconds` value to the video API.
-        val safeDurationPerScene = VideoDurationLimits.clamp(durationPerScene)
+        // Two modes, both defended against bad callers:
+        // - AUTO: the director model decides the scene count and per-scene duration from the material.
+        // - Pinned: the caller's numbers are obeyed, clamped into the contract range.
+        val autoSceneCount = sceneCount == VideoSceneLimits.AUTO
+        val autoDuration = durationPerScene == VideoDurationLimits.AUTO
+        val requestedSceneCount = if (autoSceneCount) {
+            VideoSceneLimits.DEFAULT // placeholder; replaced once the script is planned
+        } else {
+            sceneCount.coerceIn(MIN_SCENE_COUNT, MAX_SCENE_COUNT)
+        }
+        val safeDurationPerScene = if (autoDuration) VideoDurationLimits.DEFAULT else VideoDurationLimits.clamp(durationPerScene)
         val projectId = UUID.randomUUID().toString()
         val project = GenerationProject(
             id = projectId,
@@ -346,17 +356,22 @@ class AgnesRepository(
             aspectRatio = aspectRatio,
             durationSeconds = safeDurationPerScene * requestedSceneCount,
             status = GenerationStatus.SCRIPTING,
-            statusMessage = "Dream AI 正在规划 $requestedSceneCount 段电影分镜脚本 (模型: $effectiveModel)..."
+            statusMessage = if (autoSceneCount) {
+                "Dream AI 正在根据素材自动规划分镜数量与时长 (模型: $effectiveModel)..."
+            } else {
+                "Dream AI 正在规划 $requestedSceneCount 段电影分镜脚本 (模型: $effectiveModel)..."
+            }
         )
         database.projectDao().insertProject(project)
 
-        // Step 1: Generate Script
+        // Step 1: Generate Script (no video requests spent yet).
         onProgress("正在通过 Dream AI 构思分镜脚本 (目标模型: $effectiveModel, 比例: $aspectRatio)...")
         val scriptResult = agnesClient.generateVideoScript(
             config = _configFlow.value,
             themePrompt = themePrompt,
-            sceneCount = requestedSceneCount,
-            stylePreset = stylePreset
+            sceneCount = if (autoSceneCount) VideoSceneLimits.AUTO else requestedSceneCount,
+            stylePreset = stylePreset,
+            durationPerScene = if (autoDuration) VideoDurationLimits.AUTO else safeDurationPerScene
         )
 
         if (scriptResult.isFailure) {
@@ -371,41 +386,91 @@ class AgnesRepository(
 
         val script = scriptResult.getOrThrow()
         val styleBible = script.styleBible
-        // The model may return a different number of scenes than requested (or fall back to a
-        // curated template). Normalise to exactly the requested count, renumbering 1..N.
-        val scenes = normalizeScenes(script.scenes, requestedSceneCount, themePrompt, stylePreset)
-            .map { it.copy(projectId = projectId, durationSeconds = safeDurationPerScene) }
+        // In auto mode the model's own scene count wins (it counted the material's natural units);
+        // in pinned mode we still normalise the model output to exactly the requested count.
+        val targetSceneCount = if (autoSceneCount) {
+            VideoSceneLimits.clamp(script.recommendedSceneCount.takeIf { it > 0 } ?: script.scenes.size)
+        } else {
+            requestedSceneCount
+        }
+        val targetDurationPerScene = if (autoDuration) {
+            VideoDurationLimits.clamp(script.recommendedDurationPerScene ?: safeDurationPerScene)
+        } else {
+            safeDurationPerScene
+        }
+        val scenes = normalizeScenes(script.scenes, targetSceneCount, themePrompt, stylePreset)
+            .map { it.copy(projectId = projectId, durationSeconds = targetDurationPerScene, isDraft = true) }
         database.sceneClipDao().insertClips(scenes)
 
-        // Deterministic per-project seed: keeps the render stable across re-runs of the same
-        // project (less flicker / subject drift) while still varying between projects.
+        // Park at AWAITING_REVIEW: phase 2 needs an explicit go-ahead before spending requests.
+        val plannedProject = project.copy(
+            totalClips = scenes.size,
+            completedClips = 0,
+            durationSeconds = targetDurationPerScene * scenes.size,
+            styleBible = styleBible,
+            status = GenerationStatus.AWAITING_REVIEW,
+            statusMessage = "AI 已规划 ${scenes.size} 幕（${targetDurationPerScene}秒/幕，成片约 ${targetDurationPerScene * scenes.size} 秒），确认或调整后再生成"
+        )
+        database.projectDao().updateProject(plannedProject)
+        onProgress(plannedProject.statusMessage ?: "分镜规划完成，等待确认")
+        return Result.success(plannedProject)
+    }
+
+    /**
+     * Phase 2 of the video pipeline: render every not-yet-rendered scene, then stitch.
+     *
+     * Scenes already COMPLETED (with a video) are skipped, so this doubles as "只生成还没生成的幕"
+     * after the user edits the storyboard. Continuity chaining uses the previous scene's last frame,
+     * and a deterministic per-project seed keeps the render stable across re-runs.
+     */
+    suspend fun generateProjectVideo(
+        projectId: String,
+        onProgress: (String) -> Unit = {}
+    ): Result<GenerationProject> {
+        val project = database.projectDao().getProjectDirect(projectId)
+            ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
+        val config = _configFlow.value
+        val effectiveModel = config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
+        val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
+        val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
+        val styleBible = project.styleBible
+
+        val allScenes = database.sceneClipDao().getClipsForProjectDirect(projectId).sortedBy { it.sceneNumber }
+        if (allScenes.isEmpty()) {
+            return Result.failure(IllegalStateException("没有可生成的分镜，请先规划脚本"))
+        }
+        val pendingCount = allScenes.count { it.status != GenerationStatus.COMPLETED || it.videoUrl.isNullOrBlank() }
         val projectSeed = (projectId.hashCode().toLong() and 0x7FFFFFFFL)
 
-        val updatedProject = project.copy(
-            totalClips = scenes.size,
-            styleBible = styleBible,
-            status = GenerationStatus.GENERATING_CLIPS,
-            statusMessage = "已生成 ${scenes.size} 个分镜脚本，准备依次排队生成多段视频 (限速 1次/分, 模型: $effectiveModel)..."
+        database.projectDao().updateProject(
+            project.copy(
+                status = GenerationStatus.GENERATING_CLIPS,
+                statusMessage = "准备依次排队生成 $pendingCount 段视频 (限速 1次/分, 模型: $effectiveModel)..."
+            )
         )
-        database.projectDao().updateProject(updatedProject)
 
-        // Step 2: Sequential Video Generation for each clip respecting 1 request/min.
-        // The previous scene's last frame is chained in as the next scene's first frame so the
-        // clips flow continuously instead of being independent (jumpy) renders.
-        val completedClips = mutableListOf<SceneClip>()
-        var prevFrameDataUri: String? = null
-        for ((index, clip) in scenes.withIndex()) {
-            onProgress("正在生成分镜 ${clip.sceneNumber}/${scenes.size}: ${clip.sceneTitle} (模型: $effectiveModel, 1段/分)...")
+        // Walk scenes in order. Completed scenes are skipped but still refresh the continuity anchor,
+        // so a partially-rendered project continues seamlessly from the last finished shot.
+        val completedClips = allScenes
+            .filter { it.status == GenerationStatus.COMPLETED && !it.videoUrl.isNullOrBlank() }
+            .toMutableList()
+        var runningPrevFrame: String? = null
 
-            val chainedFromPrev = index > 0 && prevFrameDataUri != null
+        for ((index, clip) in allScenes.withIndex()) {
+            if (clip.status == GenerationStatus.COMPLETED && !clip.videoUrl.isNullOrBlank()) {
+                runningPrevFrame = agnesClient.extractLastFrameDataUri(clip.videoUrl)
+                continue
+            }
+            onProgress("正在生成分镜 ${clip.sceneNumber}/${allScenes.size}: ${clip.sceneTitle} (模型: $effectiveModel, 1段/分)...")
+
+            val chainedFromPrev = index > 0 && runningPrevFrame != null
             if (chainedFromPrev) {
                 onProgress("分镜 ${clip.sceneNumber}: 已提取上一分镜末帧，保持画面连续衔接...")
             }
 
             // Dual-frame control: predict this shot's END frame from its start frame + prompt, then
-            // let the video model interpolate between the two. This is what removes the "jump" at
-            // the seam — the clip is no longer free-running from a single anchor. If prediction
-            // fails we degrade gracefully to single-frame keyframe control.
+            // let the video model interpolate between the two. This removes the "jump" at the seam.
+            // Prediction failure degrades gracefully to single-frame keyframe control.
             var predictedEndFrameUri: String? = null
             if (chainedFromPrev) {
                 onProgress("分镜 ${clip.sceneNumber}: 正在预测本段尾帧以锁定运镜轨迹...")
@@ -417,21 +482,20 @@ class AgnesRepository(
                     if (!styleBible.isNullOrBlank()) append(", consistent with: $styleBible")
                     append(". This is the LAST frame, so the action has advanced to its end state while keeping the exact same subject, wardrobe, lighting and color grading as the first frame.")
                 }
-                val endFrameResult = agnesClient.generateFrameImage(
-                    config = _configFlow.value,
+                predictedEndFrameUri = agnesClient.generateFrameImage(
+                    config = config,
                     prompt = endFramePrompt,
-                    firstFrameDataUri = prevFrameDataUri,
+                    firstFrameDataUri = runningPrevFrame,
                     aspectRatio = aspectRatio
-                )
-                predictedEndFrameUri = endFrameResult.getOrNull()
+                ).getOrNull()
                 if (predictedEndFrameUri == null) {
-                    Log.w("AgnesRepository", "尾帧预测失败，降级为单帧首帧控制: ${endFrameResult.exceptionOrNull()?.message}")
+                    Log.w("AgnesRepository", "尾帧预测失败，降级为单帧首帧控制")
                 }
             }
 
-            // Mark current clip as generating so carousel UI shows loading animation for this scene
             val generatingClip = clip.copy(
                 status = GenerationStatus.GENERATING_CLIPS,
+                isDraft = false,
                 videoUrl = null,
                 previewThumbnailUrl = null,
                 statusMessage = if (chainedFromPrev) "已用上一分镜末帧续接，生成中..." else null
@@ -439,31 +503,27 @@ class AgnesRepository(
             database.sceneClipDao().updateClip(generatingClip)
 
             val clipGenResult = agnesClient.generateSceneVideoClip(
-                config = _configFlow.value,
+                config = config,
                 scene = clip,
                 projectId = projectId,
                 stylePreset = stylePreset,
-                sourceImageUri = sourceImageUri,
+                sourceImageUri = project.sourceImageUri,
                 styleBible = styleBible,
-                prevFrameImageUri = if (chainedFromPrev) prevFrameDataUri else null,
+                prevFrameImageUri = if (chainedFromPrev) runningPrevFrame else null,
                 lastFrameImageUri = predictedEndFrameUri,
                 seed = projectSeed,
                 modelOverride = effectiveModel,
                 aspectRatio = aspectRatio,
-                durationSeconds = safeDurationPerScene,
+                durationSeconds = if (clip.durationSeconds > 0) clip.durationSeconds else VideoDurationLimits.DEFAULT,
                 onTaskIdReceived = { taskId ->
-                    val updatedWithTaskId = generatingClip.copy(
-                        taskId = taskId,
-                        statusMessage = "已接收 Task ID: $taskId，等待服务端渲染..."
+                    database.sceneClipDao().updateClip(
+                        generatingClip.copy(taskId = taskId, statusMessage = "已接收 Task ID: $taskId，等待服务端渲染...")
                     )
-                    database.sceneClipDao().updateClip(updatedWithTaskId)
                 },
                 onStatusUpdate = { statusMsg ->
                     onProgress(statusMsg)
                     val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
-                    database.sceneClipDao().updateClip(
-                        currentClip.copy(statusMessage = statusMsg)
-                    )
+                    database.sceneClipDao().updateClip(currentClip.copy(statusMessage = statusMsg))
                 }
             )
 
@@ -475,68 +535,120 @@ class AgnesRepository(
                     previewThumbnailUrl = finalUrl,
                     taskId = clipRes.taskId ?: clip.taskId,
                     statusMessage = clipRes.statusMessage,
-                    status = GenerationStatus.COMPLETED
+                    status = GenerationStatus.COMPLETED,
+                    isDraft = false,
+                    error = null
                 )
                 database.sceneClipDao().updateClip(updatedClip)
+                completedClips.removeAll { it.id == updatedClip.id }
                 completedClips.add(updatedClip)
-
-                // Chain continuity: extract this clip's last frame for the next scene.
-                prevFrameDataUri = agnesClient.extractLastFrameDataUri(updatedClip.videoUrl)
+                runningPrevFrame = agnesClient.extractLastFrameDataUri(updatedClip.videoUrl)
 
                 database.projectDao().updateProject(
-                    updatedProject.copy(
+                    project.copy(
                         completedClips = completedClips.size,
-                        statusMessage = "已完成分镜 ${completedClips.size}/${scenes.size} 视频生成"
+                        status = GenerationStatus.GENERATING_CLIPS,
+                        statusMessage = "已完成分镜 ${completedClips.size}/${allScenes.size} 视频生成"
                     )
                 )
             } else {
                 val errReason = clipGenResult.exceptionOrNull()?.message ?: "未知异常"
                 val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: clip
-                val failedClip = currentClip.copy(
-                    status = GenerationStatus.FAILED,
-                    statusMessage = "生成异常: $errReason",
-                    error = errReason
+                database.sceneClipDao().updateClip(
+                    currentClip.copy(
+                        status = GenerationStatus.FAILED,
+                        isDraft = false,
+                        statusMessage = "生成异常: $errReason",
+                        error = errReason
+                    )
                 )
-                database.sceneClipDao().updateClip(failedClip)
             }
         }
 
-        // Step 3: Stitching
-        if (completedClips.isNotEmpty() && _configFlow.value.autoStitchVideos) {
-            onProgress("正在将 ${completedClips.size} 段视频无缝拼接合成为完整长视频...")
+        // Step 3: Stitching (re-read the freshest project row — the loop may have updated it).
+        val latest = database.projectDao().getProjectDirect(projectId) ?: project
+        val orderedCompleted = completedClips.sortedBy { it.sceneNumber }
+        if (orderedCompleted.isNotEmpty() && config.autoStitchVideos) {
+            onProgress("正在将 ${orderedCompleted.size} 段视频无缝拼接合成为完整长视频...")
             database.projectDao().updateProject(
-                updatedProject.copy(
-                    status = GenerationStatus.STITCHING,
-                    statusMessage = "正在渲染拼接所有视频片段..."
-                )
+                latest.copy(status = GenerationStatus.STITCHING, statusMessage = "正在渲染拼接所有视频片段...")
             )
             val stitchResult = agnesClient.stitchVideoClips(
                 projectId = projectId,
                 projectTitle = project.title,
-                clips = completedClips
+                clips = orderedCompleted
             )
-
-            val finalVideoPath = stitchResult.getOrNull() ?: completedClips.first().videoUrl
-            val finalDuration = completedClips.sumOf { it.durationSeconds }
-
-            val finishedProject = updatedProject.copy(
+            val finalVideoPath = stitchResult.getOrNull() ?: orderedCompleted.first().videoUrl
+            val finishedProject = latest.copy(
                 resultVideoUri = finalVideoPath,
-                durationSeconds = finalDuration,
+                durationSeconds = orderedCompleted.sumOf { it.durationSeconds },
+                completedClips = orderedCompleted.size,
                 status = GenerationStatus.COMPLETED,
-                statusMessage = "全部 ${completedClips.size} 段分镜视频已成功生成并拼接！"
+                statusMessage = "全部 ${orderedCompleted.size} 段分镜视频已成功生成并拼接！"
             )
             database.projectDao().updateProject(finishedProject)
             return Result.success(finishedProject)
         } else {
-            val finishedProject = updatedProject.copy(
-                status = GenerationStatus.COMPLETED,
-                statusMessage = "视频片段生成完毕！"
+            val finishedProject = latest.copy(
+                completedClips = orderedCompleted.size,
+                status = if (orderedCompleted.isEmpty()) GenerationStatus.FAILED else GenerationStatus.COMPLETED,
+                statusMessage = if (orderedCompleted.isEmpty()) "全部生成失败，请重试" else "视频片段生成完毕！"
             )
             database.projectDao().updateProject(finishedProject)
             return Result.success(finishedProject)
         }
     }
 
+    /**
+     * Re-run phase 1 for an existing (already-planned) project: re-plan the storyboard from scratch
+     * with the current inputs, discarding the previous plan. Used when the user edits the prompt and
+     * wants a fresh storyboard instead of the one already on screen.
+     */
+    suspend fun replanVideoProject(
+        projectId: String,
+        themePrompt: String,
+        sourceImageUri: String?,
+        sceneCount: Int,
+        stylePreset: String,
+        aspectRatio: String,
+        durationPerScene: Int,
+        onProgress: (String) -> Unit = {}
+    ): Result<GenerationProject> {
+        val existing = database.projectDao().getProjectDirect(projectId)
+            ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
+        // Drop the old plan + any rendered clips: a re-plan invalidates everything that followed.
+        database.sceneClipDao().deleteClipsForProject(projectId)
+        database.projectDao().deleteProject(existing)
+        return planVideoProject(
+            themePrompt = themePrompt,
+            sourceImageUri = sourceImageUri,
+            sceneCount = sceneCount,
+            stylePreset = stylePreset,
+            videoModel = null,
+            aspectRatio = aspectRatio,
+            durationPerScene = durationPerScene,
+            onProgress = onProgress
+        )
+    }
+
+    /**
+     * Apply a uniform per-scene duration to every scene of a project (review-phase adjustment).
+     * Also refreshes the project's total duration so the header summary stays truthful.
+     */
+    suspend fun setProjectSceneDuration(projectId: String, durationSeconds: Int) {
+        val safeDuration = VideoDurationLimits.clamp(durationSeconds)
+        val clips = database.sceneClipDao().getClipsForProjectDirect(projectId)
+        clips.forEach { clip ->
+            database.sceneClipDao().updateClip(clip.copy(durationSeconds = safeDuration))
+        }
+        val project = database.projectDao().getProjectDirect(projectId) ?: return
+        database.projectDao().updateProject(
+            project.copy(
+                durationSeconds = safeDuration * clips.size,
+                statusMessage = "已调整为 ${safeDuration}秒/幕，成片约 ${safeDuration * clips.size} 秒"
+            )
+        )
+    }
     /**
      * Normalise the planner output to exactly [targetCount] scenes, renumbered 1..N.
      *
@@ -760,6 +872,29 @@ class AgnesRepository(
                 completedClips = completedCount,
                 status = GenerationStatus.COMPLETED,
                 statusMessage = "已完成 $completedCount/${allClips.size} 段分镜，长视频已重新拼接"
+            )
+        )
+    }
+
+    /**
+     * Remove a single not-yet-rendered scene from a plan and renumber the rest 1..N so the
+     * storyboard stays contiguous. Intended for the review phase; completed scenes are protected
+     * by the UI (delete is disabled while rendering) and by the caller's own confirmation.
+     */
+    suspend fun deleteSceneClip(projectId: String, clipId: String): Result<Unit> = runCatching {
+        database.sceneClipDao().deleteClipById(clipId)
+        val remaining = database.sceneClipDao().getClipsForProjectDirect(projectId).sortedBy { it.sceneNumber }
+        remaining.forEachIndexed { index, clip ->
+            if (clip.sceneNumber != index + 1) {
+                database.sceneClipDao().updateClip(clip.copy(sceneNumber = index + 1))
+            }
+        }
+        val project = database.projectDao().getProjectDirect(projectId) ?: return@runCatching
+        database.projectDao().updateProject(
+            project.copy(
+                totalClips = remaining.size,
+                durationSeconds = remaining.sumOf { it.durationSeconds },
+                statusMessage = "已删除 1 幕，当前共 ${remaining.size} 幕"
             )
         )
     }

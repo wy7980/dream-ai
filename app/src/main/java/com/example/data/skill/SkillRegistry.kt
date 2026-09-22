@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.data.api.AgnesClient
 import com.example.data.model.GenerationProject
 import com.example.data.model.VideoDurationLimits
+import com.example.data.model.VideoSceneLimits
 import com.example.data.repository.AgnesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -140,16 +141,16 @@ class VideoGenerationSkill(
         SkillParam(
             name = "duration",
             type = "int",
-            description = "单段视频时长（秒），如 5 或 10",
+            description = "单段视频时长（秒，4~12）。不填则由 AI 根据每幕旁白长度自动规划",
             required = false,
-            defaultValue = 5
+            defaultValue = null
         ),
         SkillParam(
             name = "sceneCount",
             type = "int",
-            description = "分镜段数（默认 4 段，可设 2~6 段）",
+            description = "分镜段数（1~20）。不填则由 AI 根据素材自然单元自动规划（如四句唐诗 → 4 幕）",
             required = false,
-            defaultValue = 4
+            defaultValue = null
         ),
         SkillParam(
             name = "stylePreset",
@@ -174,8 +175,10 @@ class VideoGenerationSkill(
             ?: "电影级叙事视觉短片"
         val explicitModel = arguments["model"]?.toString()?.takeIf { it.isNotBlank() }
         val aspectRatio = arguments["aspectRatio"]?.toString()?.takeIf { it.isNotBlank() } ?: "16:9"
-        val duration = VideoDurationLimits.clamp((arguments["duration"] as? Number)?.toInt() ?: VideoDurationLimits.DEFAULT)
-        val sceneCount = (arguments["sceneCount"] as? Number)?.toInt() ?: 4
+        // Absent args -> AUTO: let the director model size the film from the material instead of
+        // forcing a guess. An explicit value still wins and is clamped by the pipeline.
+        val duration = (arguments["duration"] as? Number)?.toInt() ?: VideoDurationLimits.AUTO
+        val sceneCount = (arguments["sceneCount"] as? Number)?.toInt() ?: VideoSceneLimits.AUTO
         val stylePreset = arguments["stylePreset"]?.toString() ?: "Cinematic 3D"
         val sourceImageUri = arguments["sourceImageUri"]?.toString() ?: context.attachedImageUri
 
@@ -183,7 +186,8 @@ class VideoGenerationSkill(
 
         context.onProgress("技能 [video-generation] 正在规划分镜脚本与运镜语言 (模型: $effectiveModel, 比例: $aspectRatio)...")
 
-        val result = repository.startFullVideoPipeline(
+        // Agent path is one-shot: plan then render immediately (no interactive review step).
+        val planResult = repository.planVideoProject(
             themePrompt = themePrompt,
             sourceImageUri = sourceImageUri,
             sceneCount = sceneCount,
@@ -193,6 +197,16 @@ class VideoGenerationSkill(
             durationPerScene = duration,
             onProgress = context.onProgress
         )
+        val result = if (planResult.isSuccess) {
+            val planned = planResult.getOrThrow()
+            context.onProgress("已规划 ${planned.totalClips} 幕，开始逐段生成...")
+            repository.generateProjectVideo(
+                projectId = planned.id,
+                onProgress = context.onProgress
+            )
+        } else {
+            planResult
+        }
 
         return if (result.isSuccess) {
             val project = result.getOrThrow()
@@ -202,7 +216,7 @@ class VideoGenerationSkill(
                 relatedProjectId = project.id,
                 outputVideoUrl = project.resultVideoUri,
                 intermediateSteps = listOf(
-                    "规划 $sceneCount 段电影分镜脚本与运镜参数",
+                    if (sceneCount == VideoSceneLimits.AUTO) "由 AI 自动规划分镜数量与每幕时长" else "规划 $sceneCount 段电影分镜脚本与运镜参数",
                     "在 60s 冷却队列中依次调用自适应视频渲染模型 ($effectiveModel, 画面比例: $aspectRatio)",
                     "多段分镜片段已成功捕获与校验",
                     "完成时间轴音视频拼接并输出最终成果"
