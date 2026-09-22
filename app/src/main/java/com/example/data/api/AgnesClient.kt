@@ -51,6 +51,25 @@ data class VideoClipResult(
 )
 
 /**
+ * Outcome of the rate-limited video-create request. Kept separate from [VideoClipResult] so that
+ * the (short, quota-consuming) create call and the (long, read-only) poll loop can run in
+ * different concurrency scopes: only [Ready]/[Failed] are final, [Pending] means "created, go poll".
+ */
+private sealed interface CreateOutcome {
+    data class Ready(val result: VideoClipResult) : CreateOutcome
+    data class Failed(val error: Exception) : CreateOutcome
+    data class Pending(
+        val taskId: String,
+        val videoId: String,
+        val taskIdRaw: String,
+        val endpoint: String,
+        val headerName: String,
+        val apiKey: String,
+        val modelName: String
+    ) : CreateOutcome
+}
+
+/**
  * Result of the script-planning step: the ordered scene list plus an optional global
  * "style bible" that is injected into every scene prompt to keep the clips consistent.
  */
@@ -708,11 +727,17 @@ class AgnesClient(
         aspectRatio: String = "16:9",
         durationSeconds: Int = 5,
         onTaskIdReceived: suspend (String) -> Unit = {},
-        onStatusUpdate: suspend (String) -> Unit = {}
+        onStatusUpdate: suspend (String) -> Unit = {},
+        /** Fired once per poll tick with the attempt number and the human-readable status. */
+        onPollTick: suspend (attempt: Int, statusMessage: String) -> Unit = { _, _ -> }
     ): Result<VideoClipResult> = withContext(Dispatchers.IO) {
         val effectiveModel = modelOverride?.trim()?.ifBlank { null }
             ?: config.videoModelName.trim().ifBlank { "agnes-video-v2.0" }
-        rateLimitManager.executeRateLimitedWithRetry("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
+        // The rate-limited window must cover ONLY the create request: one video create = one quota
+        // unit. Polling the result is read-only and can run for minutes, so it is deliberately kept
+        // OUTSIDE the lock — otherwise the limiter would report "调用中" for the entire render and
+        // no other task (and no resume logic) could ever be admitted.
+        val createOutcome = rateLimitManager.executeRateLimitedWithRetry("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
             try {
                 val provider = resolveProvider(config, config.videoProviderId)
                 if (provider.apiKey.isNotBlank()) {
@@ -880,7 +905,7 @@ class AgnesClient(
 
                             if (videoUrl.isNotBlank()) {
                                 onStatusUpdate("生成成功！获取直接视频链接")
-                                return@executeRateLimitedWithRetry Result.success(
+                                return@executeRateLimitedWithRetry CreateOutcome.Ready(
                                     VideoClipResult(
                                         videoUrl = videoUrl,
                                         taskId = displayId.ifBlank { null },
@@ -890,28 +915,17 @@ class AgnesClient(
                             }
 
                             if (displayId.isNotBlank()) {
-                                val polledUrl = pollVideoTaskResult(
-                                    baseEndpoint = endpoint,
+                                // Hand the remote task id back to the caller. The (long) polling loop
+                                // runs AFTER the rate-limit lock is released, in pollVideoTaskResult.
+                                return@executeRateLimitedWithRetry CreateOutcome.Pending(
+                                    taskId = displayId,
                                     videoId = videoId,
-                                    taskId = taskId,
-                                    modelName = effectiveModel,
+                                    taskIdRaw = taskId,
+                                    endpoint = endpoint,
                                     headerName = headerName,
                                     apiKey = provider.apiKey.trim(),
-                                    onStatusUpdate = onStatusUpdate
+                                    modelName = effectiveModel
                                 )
-                                if (!polledUrl.isNullOrBlank()) {
-                                    return@executeRateLimitedWithRetry Result.success(
-                                        VideoClipResult(
-                                            videoUrl = polledUrl,
-                                            taskId = displayId,
-                                            statusMessage = "生成成功 [ID: ${displayId.take(20)}...]"
-                                        )
-                                    )
-                                } else {
-                                    return@executeRateLimitedWithRetry Result.failure(
-                                        Exception("任务创建成功 [ID: ${displayId.take(20)}...]，但服务端渲染失败或资源解析超时")
-                                    )
-                                }
                             }
                         }
                     } else {
@@ -927,19 +941,102 @@ class AgnesClient(
                                 retryAfterSeconds = response.header("Retry-After")?.trim()?.toIntOrNull()
                             )
                         }
-                        return@executeRateLimitedWithRetry Result.failure(
+                        return@executeRateLimitedWithRetry CreateOutcome.Failed(
                             Exception("接口创建任务失败 HTTP ${response.code}: ${errBody.take(150)}")
                         )
                     }
                 }
 
-                Result.failure(Exception("视频生成接口未返回有效 URL 或 Task ID"))
+                CreateOutcome.Failed(Exception("视频生成接口未返回有效 URL 或 Task ID"))
             } catch (e: RateLimitException) {
                 // Propagate so executeRateLimitedWithRetry can retry with backoff.
                 throw e
             } catch (e: Exception) {
-                Result.failure(e)
+                CreateOutcome.Failed(e)
             }
+        }
+
+        // Rate-limit lock released: now do the read-only polling (may take several minutes).
+        when (createOutcome) {
+            is CreateOutcome.Ready -> Result.success(createOutcome.result)
+            is CreateOutcome.Failed -> Result.failure(createOutcome.error)
+            is CreateOutcome.Pending -> {
+                val polledUrl = pollVideoTaskResult(
+                    baseEndpoint = createOutcome.endpoint,
+                    videoId = createOutcome.videoId,
+                    taskId = createOutcome.taskIdRaw,
+                    modelName = createOutcome.modelName,
+                    headerName = createOutcome.headerName,
+                    apiKey = createOutcome.apiKey,
+                    onStatusUpdate = onStatusUpdate,
+                    onPollTick = onPollTick
+                )
+                if (!polledUrl.isNullOrBlank()) {
+                    Result.success(
+                        VideoClipResult(
+                            videoUrl = polledUrl,
+                            taskId = createOutcome.taskId,
+                            statusMessage = "生成成功 [ID: ${createOutcome.taskId.take(20)}...]"
+                        )
+                    )
+                } else {
+                    Result.failure(
+                        Exception("任务创建成功 [ID: ${createOutcome.taskId.take(20)}...]，但服务端渲染失败或资源解析超时")
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Resume polling an already-created remote video task.
+     *
+     * Used when the app was killed while a scene was still rendering: the create request was
+     * already spent, so this only READS the task state (never spends a new rate-limited create).
+     * [storedTaskId] is whatever the create response returned (`video_id` or `task_id`); it is
+     * passed as both candidates because the exact field type is not persisted separately.
+     */
+    suspend fun resumePollVideoTask(
+        config: AgnesApiConfig,
+        storedTaskId: String,
+        modelName: String = "",
+        onStatusUpdate: suspend (String) -> Unit = {},
+        onPollTick: suspend (attempt: Int, statusMessage: String) -> Unit = { _, _ -> }
+    ): Result<VideoClipResult> = withContext(Dispatchers.IO) {
+        if (storedTaskId.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("缺少远端任务 ID，无法续跑"))
+        }
+        val provider = resolveProvider(config, config.videoProviderId)
+        if (provider.apiKey.isBlank()) {
+            return@withContext Result.failure(IllegalStateException("视频 Provider 未配置 API Key，无法续跑"))
+        }
+        var base = provider.endpointUrl.trim().removeSuffix("/")
+        if (base.isBlank()) base = "https://api.agnes-ai.cn/v1"
+        val endpoint = if (base.endsWith("/v1")) "$base/videos" else "$base/v1/videos"
+        val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
+
+        val polledUrl = pollVideoTaskResult(
+            baseEndpoint = endpoint,
+            videoId = storedTaskId,
+            taskId = storedTaskId,
+            modelName = modelName,
+            headerName = headerName,
+            apiKey = provider.apiKey.trim(),
+            onStatusUpdate = onStatusUpdate,
+            onPollTick = onPollTick
+        )
+        if (!polledUrl.isNullOrBlank()) {
+            Result.success(
+                VideoClipResult(
+                    videoUrl = polledUrl,
+                    taskId = storedTaskId,
+                    statusMessage = "续跑成功 [ID: ${storedTaskId.take(20)}...]"
+                )
+            )
+        } else {
+            Result.failure(
+                Exception("远端任务 [ID: ${storedTaskId.take(20)}...] 未返回视频（可能已过期或渲染失败）")
+            )
         }
     }
 
@@ -1009,7 +1106,8 @@ class AgnesClient(
         modelName: String = "",
         headerName: String,
         apiKey: String,
-        onStatusUpdate: suspend (String) -> Unit = {}
+        onStatusUpdate: suspend (String) -> Unit = {},
+        onPollTick: suspend (attempt: Int, statusMessage: String) -> Unit = { _, _ -> }
     ): String? = withContext(Dispatchers.IO) {
         val cleanBase = baseEndpoint.removeSuffix("/")
         val candidateUrls = mutableListOf<String>()
@@ -1105,7 +1203,9 @@ class AgnesClient(
             }
 
             val progText = if (currentProgress >= 0) "进度 ${currentProgress}%" else "排队渲染中"
-            onStatusUpdate("视频渲染中 [$progText] (第 $attempt/$maxAttempts 次轮询, ID: ${displayId.take(20)}...)")
+            val tickMsg = "视频渲染中 [$progText] (第 $attempt/$maxAttempts 次轮询, ID: ${displayId.take(20)}...)"
+            onStatusUpdate(tickMsg)
+            onPollTick(attempt, tickMsg)
         }
 
         onStatusUpdate("任务 $displayId 渲染超时 (超过 10 分钟)")

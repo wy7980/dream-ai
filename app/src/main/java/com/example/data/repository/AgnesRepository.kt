@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.example.data.api.AgnesClient
 import com.example.data.api.RateLimitManager
+import com.example.data.api.VideoClipResult
 import com.example.data.local.AppDatabase
 import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
@@ -12,9 +13,11 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
+import com.example.data.model.GenerationTask
 import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
+import com.example.data.model.TaskStage
 import com.example.data.model.VideoDurationLimits
 import com.example.data.model.VideoSceneLimits
 import kotlinx.coroutines.flow.Flow
@@ -329,6 +332,8 @@ class AgnesRepository(
         videoModel: String? = null,
         aspectRatio: String = "16:9",
         durationPerScene: Int = VideoDurationLimits.AUTO,
+        sessionId: String? = null,
+        reuseProjectId: String? = null,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
@@ -343,12 +348,18 @@ class AgnesRepository(
             sceneCount.coerceIn(MIN_SCENE_COUNT, MAX_SCENE_COUNT)
         }
         val safeDurationPerScene = if (autoDuration) VideoDurationLimits.DEFAULT else VideoDurationLimits.clamp(durationPerScene)
-        val projectId = UUID.randomUUID().toString()
+        val projectId = reuseProjectId ?: UUID.randomUUID().toString()
+        // A resumed plan reuses the same project row: drop the stale half-planned clips first so
+        // the re-plan does not leave orphans behind.
+        if (reuseProjectId != null) {
+            database.sceneClipDao().deleteClipsForProject(projectId)
+        }
         val project = GenerationProject(
             id = projectId,
             title = if (themePrompt.isNotBlank()) themePrompt.take(30) else "多段分镜拼接视频",
             type = ProjectType.VIDEO_SCRIPT_AND_STITCH,
             prompt = themePrompt,
+            sessionId = sessionId,
             sourceImageUri = sourceImageUri,
             totalClips = requestedSceneCount,
             completedClips = 0,
@@ -363,6 +374,16 @@ class AgnesRepository(
             }
         )
         database.projectDao().insertProject(project)
+
+        // Mark the plan as in-flight on disk, so a kill during planning is detected on next launch.
+        persistTask(
+            projectId = projectId,
+            sessionId = sessionId,
+            stage = TaskStage.PLANNING,
+            sceneNumber = 0,
+            totalScenes = requestedSceneCount,
+            message = project.statusMessage
+        )
 
         // Step 1: Generate Script (no video requests spent yet).
         onProgress("正在通过 Dream AI 构思分镜脚本 (目标模型: $effectiveModel, 比例: $aspectRatio)...")
@@ -381,6 +402,15 @@ class AgnesRepository(
                 error = scriptResult.exceptionOrNull()?.message
             )
             database.projectDao().updateProject(errProject)
+            persistTask(
+                projectId = projectId,
+                sessionId = sessionId,
+                stage = TaskStage.FAILED,
+                sceneNumber = 0,
+                totalScenes = requestedSceneCount,
+                message = errProject.statusMessage,
+                error = errProject.error
+            )
             return Result.failure(scriptResult.exceptionOrNull() ?: Exception("脚本生成失败"))
         }
 
@@ -412,6 +442,9 @@ class AgnesRepository(
             statusMessage = "AI 已规划 ${scenes.size} 幕（${targetDurationPerScene}秒/幕，成片约 ${targetDurationPerScene * scenes.size} 秒），确认或调整后再生成"
         )
         database.projectDao().updateProject(plannedProject)
+        // The plan is parked at AWAITING_REVIEW — that is the user's turn, not an interrupted run,
+        // so clear the in-flight task row: nothing should nag for a plan that is waiting on a click.
+        database.generationTaskDao().deleteForProject(projectId)
         onProgress(plannedProject.statusMessage ?: "分镜规划完成，等待确认")
         return Result.success(plannedProject)
     }
@@ -425,6 +458,7 @@ class AgnesRepository(
      */
     suspend fun generateProjectVideo(
         projectId: String,
+        resumeTaskId: String? = null,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val project = database.projectDao().getProjectDirect(projectId)
@@ -441,6 +475,19 @@ class AgnesRepository(
         }
         val pendingCount = allScenes.count { it.status != GenerationStatus.COMPLETED || it.videoUrl.isNullOrBlank() }
         val projectSeed = (projectId.hashCode().toLong() and 0x7FFFFFFFL)
+
+        // Durable state machine: from here on every meaningful step is written to
+        // `generation_tasks`, so if the process dies the run can be detected and resumed later.
+        persistTask(
+            projectId = projectId,
+            sessionId = project.sessionId,
+            stage = TaskStage.RENDERING,
+            sceneNumber = allScenes.firstOrNull { it.status != GenerationStatus.COMPLETED }?.sceneNumber ?: 0,
+            totalScenes = allScenes.size,
+            remoteTaskId = resumeTaskId,
+            clipId = null,
+            message = "准备依次排队生成 $pendingCount 段视频 (限速 1次/分, 模型: $effectiveModel)..."
+        )
 
         database.projectDao().updateProject(
             project.copy(
@@ -461,7 +508,31 @@ class AgnesRepository(
                 runningPrevFrame = agnesClient.extractLastFrameDataUri(clip.videoUrl)
                 continue
             }
-            onProgress("正在生成分镜 ${clip.sceneNumber}/${allScenes.size}: ${clip.sceneTitle} (模型: $effectiveModel, 1段/分)...")
+
+            // Resume path: a clip left mid-render by a previous (killed) run already spent its
+            // create request and carries a remote task id. Poll that task instead of creating a new
+            // one — creating again would waste quota and orphan the in-flight remote render.
+            val isResumeTarget = resumeTaskId != null &&
+                clip.status == GenerationStatus.GENERATING_CLIPS &&
+                !clip.taskId.isNullOrBlank()
+
+            onProgress(
+                if (isResumeTarget) {
+                    "正在续跑分镜 ${clip.sceneNumber}/${allScenes.size}: ${clip.sceneTitle}（复用远端任务 ${clip.taskId!!.take(20)}...）..."
+                } else {
+                    "正在生成分镜 ${clip.sceneNumber}/${allScenes.size}: ${clip.sceneTitle} (模型: $effectiveModel, 1段/分)..."
+                }
+            )
+            persistTask(
+                projectId = projectId,
+                sessionId = project.sessionId,
+                stage = TaskStage.RENDERING,
+                sceneNumber = clip.sceneNumber,
+                totalScenes = allScenes.size,
+                remoteTaskId = clip.taskId,
+                clipId = clip.id,
+                message = "正在处理分镜 ${clip.sceneNumber}/${allScenes.size}"
+            )
 
             val chainedFromPrev = index > 0 && runningPrevFrame != null
             if (chainedFromPrev) {
@@ -470,9 +541,10 @@ class AgnesRepository(
 
             // Dual-frame control: predict this shot's END frame from its start frame + prompt, then
             // let the video model interpolate between the two. This removes the "jump" at the seam.
-            // Prediction failure degrades gracefully to single-frame keyframe control.
+            // Prediction failure degrades gracefully to single-frame keyframe control. Skipped when
+            // resuming (no new create request is issued, so no end frame is needed).
             var predictedEndFrameUri: String? = null
-            if (chainedFromPrev) {
+            if (chainedFromPrev && !isResumeTarget) {
                 onProgress("分镜 ${clip.sceneNumber}: 正在预测本段尾帧以锁定运镜轨迹...")
                 val endFramePrompt = buildString {
                     append("Cinematic final frame of the shot described as: ")
@@ -502,30 +574,83 @@ class AgnesRepository(
             )
             database.sceneClipDao().updateClip(generatingClip)
 
-            val clipGenResult = agnesClient.generateSceneVideoClip(
-                config = config,
-                scene = clip,
-                projectId = projectId,
-                stylePreset = stylePreset,
-                sourceImageUri = project.sourceImageUri,
-                styleBible = styleBible,
-                prevFrameImageUri = if (chainedFromPrev) runningPrevFrame else null,
-                lastFrameImageUri = predictedEndFrameUri,
-                seed = projectSeed,
-                modelOverride = effectiveModel,
-                aspectRatio = aspectRatio,
-                durationSeconds = if (clip.durationSeconds > 0) clip.durationSeconds else VideoDurationLimits.DEFAULT,
-                onTaskIdReceived = { taskId ->
-                    database.sceneClipDao().updateClip(
-                        generatingClip.copy(taskId = taskId, statusMessage = "已接收 Task ID: $taskId，等待服务端渲染...")
-                    )
-                },
-                onStatusUpdate = { statusMsg ->
-                    onProgress(statusMsg)
-                    val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
-                    database.sceneClipDao().updateClip(currentClip.copy(statusMessage = statusMsg))
-                }
-            )
+            val clipGenResult: Result<VideoClipResult> = if (isResumeTarget) {
+                agnesClient.resumePollVideoTask(
+                    config = config,
+                    storedTaskId = clip.taskId!!,
+                    modelName = effectiveModel,
+                    onStatusUpdate = { statusMsg ->
+                        onProgress(statusMsg)
+                        val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
+                        database.sceneClipDao().updateClip(currentClip.copy(statusMessage = statusMsg))
+                    },
+                    onPollTick = { attempt, statusMsg ->
+                        val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
+                        database.sceneClipDao().updateClip(currentClip.copy(statusMessage = statusMsg))
+                        persistTask(
+                            projectId = projectId,
+                            sessionId = project.sessionId,
+                            stage = TaskStage.RENDERING,
+                            sceneNumber = clip.sceneNumber,
+                            totalScenes = allScenes.size,
+                            remoteTaskId = currentClip.taskId ?: clip.taskId,
+                            clipId = clip.id,
+                            message = statusMsg,
+                            pollCount = attempt
+                        )
+                    }
+                )
+            } else {
+                agnesClient.generateSceneVideoClip(
+                    config = config,
+                    scene = clip,
+                    projectId = projectId,
+                    stylePreset = stylePreset,
+                    sourceImageUri = project.sourceImageUri,
+                    styleBible = styleBible,
+                    prevFrameImageUri = if (chainedFromPrev) runningPrevFrame else null,
+                    lastFrameImageUri = predictedEndFrameUri,
+                    seed = projectSeed,
+                    modelOverride = effectiveModel,
+                    aspectRatio = aspectRatio,
+                    durationSeconds = if (clip.durationSeconds > 0) clip.durationSeconds else VideoDurationLimits.DEFAULT,
+                    onTaskIdReceived = { taskId ->
+                        database.sceneClipDao().updateClip(
+                            generatingClip.copy(taskId = taskId, statusMessage = "已接收 Task ID: $taskId，等待服务端渲染...")
+                        )
+                        persistTask(
+                            projectId = projectId,
+                            sessionId = project.sessionId,
+                            stage = TaskStage.RENDERING,
+                            sceneNumber = clip.sceneNumber,
+                            totalScenes = allScenes.size,
+                            remoteTaskId = taskId,
+                            clipId = clip.id,
+                            message = "已接收 Task ID: $taskId"
+                        )
+                    },
+                    onStatusUpdate = { statusMsg ->
+                        onProgress(statusMsg)
+                        val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
+                        database.sceneClipDao().updateClip(currentClip.copy(statusMessage = statusMsg))
+                    },
+                    onPollTick = { attempt, statusMsg ->
+                        val currentClip = database.sceneClipDao().getClipByIdDirect(clip.id) ?: generatingClip
+                        database.sceneClipDao().updateClip(currentClip.copy(statusMessage = statusMsg))
+                        persistTask(
+                            projectId = projectId,
+                            sessionId = project.sessionId,
+                            stage = TaskStage.RENDERING,
+                            sceneNumber = clip.sceneNumber,
+                            totalScenes = allScenes.size,
+                            remoteTaskId = currentClip.taskId ?: clip.taskId,
+                            clipId = clip.id,
+                            message = statusMsg,
+                            pollCount = attempt
+                        )
+                    }
+                )
+            }
 
             if (clipGenResult.isSuccess) {
                 val clipRes = clipGenResult.getOrThrow()
@@ -573,6 +698,14 @@ class AgnesRepository(
             database.projectDao().updateProject(
                 latest.copy(status = GenerationStatus.STITCHING, statusMessage = "正在渲染拼接所有视频片段...")
             )
+            persistTask(
+                projectId = projectId,
+                sessionId = project.sessionId,
+                stage = TaskStage.STITCHING,
+                sceneNumber = orderedCompleted.size,
+                totalScenes = allScenes.size,
+                message = "正在拼接 ${orderedCompleted.size} 段视频"
+            )
             val stitchResult = agnesClient.stitchVideoClips(
                 projectId = projectId,
                 projectTitle = project.title,
@@ -587,15 +720,152 @@ class AgnesRepository(
                 statusMessage = "全部 ${orderedCompleted.size} 段分镜视频已成功生成并拼接！"
             )
             database.projectDao().updateProject(finishedProject)
+            persistTask(
+                projectId = projectId,
+                sessionId = project.sessionId,
+                stage = TaskStage.COMPLETED,
+                sceneNumber = orderedCompleted.size,
+                totalScenes = allScenes.size,
+                message = finishedProject.statusMessage
+            )
             return Result.success(finishedProject)
         } else {
+            val allFailed = orderedCompleted.isEmpty()
             val finishedProject = latest.copy(
                 completedClips = orderedCompleted.size,
-                status = if (orderedCompleted.isEmpty()) GenerationStatus.FAILED else GenerationStatus.COMPLETED,
-                statusMessage = if (orderedCompleted.isEmpty()) "全部生成失败，请重试" else "视频片段生成完毕！"
+                status = if (allFailed) GenerationStatus.FAILED else GenerationStatus.COMPLETED,
+                statusMessage = if (allFailed) "全部生成失败，请重试" else "视频片段生成完毕！"
             )
             database.projectDao().updateProject(finishedProject)
+            persistTask(
+                projectId = projectId,
+                sessionId = project.sessionId,
+                stage = if (allFailed) TaskStage.FAILED else TaskStage.COMPLETED,
+                sceneNumber = orderedCompleted.size,
+                totalScenes = allScenes.size,
+                message = finishedProject.statusMessage,
+                error = if (allFailed) "全部生成失败" else null
+            )
             return Result.success(finishedProject)
+        }
+    }
+
+    /**
+     * Upsert the durable state-machine row for a project's active pipeline run.
+     *
+     * There is at most one non-terminal task per project; the row is reused across the run and
+     * stamped terminal (COMPLETED / FAILED) at the end so a launch-time scan skips it.
+     */
+    private suspend fun persistTask(
+        projectId: String,
+        sessionId: String?,
+        stage: TaskStage,
+        sceneNumber: Int,
+        totalScenes: Int,
+        remoteTaskId: String? = null,
+        clipId: String? = null,
+        message: String = "",
+        pollCount: Int = 0,
+        error: String? = null
+    ) {
+        val dao = database.generationTaskDao()
+        val now = System.currentTimeMillis()
+        val existing = dao.getLatestForProject(projectId)
+        val base = existing ?: GenerationTask(projectId = projectId, sessionId = sessionId)
+        dao.upsert(
+            base.copy(
+                projectId = projectId,
+                sessionId = sessionId ?: base.sessionId,
+                stage = stage,
+                remoteTaskId = remoteTaskId ?: base.remoteTaskId,
+                currentClipId = clipId ?: base.currentClipId,
+                currentSceneNumber = sceneNumber,
+                totalScenes = totalScenes,
+                pollCount = pollCount,
+                lastPolledAt = now,
+                lastMessage = message,
+                error = error,
+                updatedAt = now
+            )
+        )
+    }
+
+    /**
+     * Launch-time scan: the non-terminal pipeline runs that a previous (killed) process left behind.
+     * Only tasks whose project still exists are returned; a stale row whose project was deleted is
+     * silently pruned so it can never resurface in the resume banner.
+     */
+    suspend fun findResumableTasks(): List<GenerationTask> {
+        val dao = database.generationTaskDao()
+        val resumable = dao.getResumable()
+        val alive = mutableListOf<GenerationTask>()
+        resumable.forEach { task ->
+            if (database.projectDao().getProjectDirect(task.projectId) != null) {
+                alive.add(task)
+            } else {
+                dao.deleteForProject(task.projectId)
+            }
+        }
+        return alive
+    }
+
+    /** The resumable task for one project, if any (used to label the resume banner). */
+    suspend fun findResumableTaskForProject(projectId: String): GenerationTask? =
+        database.generationTaskDao().getResumable().firstOrNull { it.projectId == projectId }
+
+    /**
+     * Resume an interrupted pipeline (option B: detect-and-resume on next launch).
+     *
+     * Never creates a new video request for a scene that already has a remote task id —
+     * [generateProjectVideo] reconnects to that task instead. Scenes that were still only
+     * planned (draft, no remote id) are rendered fresh, which is exactly the normal path.
+     */
+    suspend fun resumeTask(
+        projectId: String,
+        onProgress: (String) -> Unit = {}
+    ): Result<GenerationProject> {
+        val task = findResumableTaskForProject(projectId)
+            ?: return Result.failure(IllegalStateException("没有可续跑的任务"))
+        val project = database.projectDao().getProjectDirect(projectId)
+            ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
+
+        return when (task.stage) {
+            TaskStage.PLANNING -> {
+                // Planning spent no quota and is idempotent; re-plan into the same project row,
+                // reusing the originally requested scene count / per-scene duration.
+                onProgress("检测到未完成的分镜规划，正在重新规划...")
+                val requestedCount = if (project.totalClips > 0) project.totalClips else VideoSceneLimits.AUTO
+                val perScene = if (project.totalClips > 0 && project.durationSeconds > 0) {
+                    (project.durationSeconds / project.totalClips).coerceAtLeast(VideoDurationLimits.MIN)
+                } else {
+                    VideoDurationLimits.AUTO
+                }
+                planVideoProject(
+                    themePrompt = project.prompt,
+                    sourceImageUri = project.sourceImageUri,
+                    sceneCount = requestedCount,
+                    stylePreset = project.stylePreset,
+                    aspectRatio = project.aspectRatio,
+                    durationPerScene = perScene,
+                    sessionId = project.sessionId,
+                    reuseProjectId = projectId,
+                    onProgress = onProgress
+                )
+            }
+            TaskStage.RENDERING -> {
+                // Reconnect to the in-flight remote task (if any) instead of creating a new one.
+                onProgress("检测到未完成的分镜渲染，正在续跑...")
+                generateProjectVideo(
+                    projectId = projectId,
+                    resumeTaskId = task.remoteTaskId,
+                    onProgress = onProgress
+                )
+            }
+            TaskStage.STITCHING -> {
+                onProgress("检测到未完成的视频拼接，正在重新拼接...")
+                generateProjectVideo(projectId = projectId, onProgress = onProgress)
+            }
+            else -> Result.failure(IllegalStateException("任务已结束，无需续跑"))
         }
     }
 
@@ -618,6 +888,7 @@ class AgnesRepository(
             ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
         // Drop the old plan + any rendered clips: a re-plan invalidates everything that followed.
         database.sceneClipDao().deleteClipsForProject(projectId)
+        database.generationTaskDao().deleteForProject(projectId)
         database.projectDao().deleteProject(existing)
         return planVideoProject(
             themePrompt = themePrompt,
@@ -978,6 +1249,7 @@ class AgnesRepository(
 
     suspend fun deleteProject(project: GenerationProject) {
         database.sceneClipDao().deleteClipsForProject(project.id)
+        database.generationTaskDao().deleteForProject(project.id)
         database.projectDao().deleteProject(project)
     }
 

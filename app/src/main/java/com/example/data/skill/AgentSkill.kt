@@ -19,6 +19,8 @@ data class SkillParam(
 data class SkillExecutionContext(
     val config: AgnesApiConfig,
     val attachedImageUri: String? = null,
+    /** Owning conversation, so long-running skills can stamp their project for later resume. */
+    val sessionId: String? = null,
     val onProgress: (String) -> Unit = {}
 )
 

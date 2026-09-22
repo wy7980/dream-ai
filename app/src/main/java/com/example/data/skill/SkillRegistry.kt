@@ -195,6 +195,7 @@ class VideoGenerationSkill(
             videoModel = effectiveModel,
             aspectRatio = aspectRatio,
             durationPerScene = duration,
+            sessionId = context.sessionId,
             onProgress = context.onProgress
         )
         val result = if (planResult.isSuccess) {

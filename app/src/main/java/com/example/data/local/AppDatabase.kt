@@ -14,8 +14,10 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
+import com.example.data.model.GenerationTask
 import com.example.data.model.ProjectType
 import com.example.data.model.SceneClip
+import com.example.data.model.TaskStage
 import kotlinx.coroutines.flow.Flow
 
 class Converters {
@@ -30,6 +32,12 @@ class Converters {
 
     @TypeConverter
     fun toGenerationStatus(value: String): GenerationStatus = runCatching { GenerationStatus.valueOf(value) }.getOrDefault(GenerationStatus.IDLE)
+
+    @TypeConverter
+    fun fromTaskStage(value: TaskStage): String = value.name
+
+    @TypeConverter
+    fun toTaskStage(value: String): TaskStage = runCatching { TaskStage.valueOf(value) }.getOrDefault(TaskStage.PLANNING)
 }
 
 @Dao
@@ -151,9 +159,46 @@ interface ChatMessageDao {
     suspend fun clearAllMessages()
 }
 
+@Dao
+interface GenerationTaskDao {
+    @Query("SELECT * FROM generation_tasks WHERE id = :id")
+    suspend fun getById(id: String): GenerationTask?
+
+    @Query("SELECT * FROM generation_tasks WHERE projectId = :projectId ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestForProject(projectId: String): GenerationTask?
+
+    @Query("SELECT * FROM generation_tasks ORDER BY createdAt DESC")
+    fun getAll(): Flow<List<GenerationTask>>
+
+    /** Non-terminal tasks only: these are the ones a launch-time resume scan must consider. */
+    @Query("SELECT * FROM generation_tasks WHERE stage IN ('PLANNING', 'RENDERING', 'STITCHING') ORDER BY createdAt ASC")
+    suspend fun getResumable(): List<GenerationTask>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(task: GenerationTask)
+
+    @Query("UPDATE generation_tasks SET stage = :stage, remoteTaskId = :remoteTaskId, currentClipId = :currentClipId, currentSceneNumber = :currentSceneNumber, totalScenes = :totalScenes, pollCount = :pollCount, lastPolledAt = :lastPolledAt, lastMessage = :lastMessage, error = :error, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateProgress(
+        id: String,
+        stage: TaskStage,
+        remoteTaskId: String?,
+        currentClipId: String?,
+        currentSceneNumber: Int,
+        totalScenes: Int,
+        pollCount: Int,
+        lastPolledAt: Long,
+        lastMessage: String,
+        error: String?,
+        updatedAt: Long
+    )
+
+    @Query("DELETE FROM generation_tasks WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: String)
+}
+
 @Database(
-    entities = [GenerationProject::class, SceneClip::class, ChatMessage::class, ChatSession::class],
-    version = 5, // v5: SceneClip.isDraft + GenerationStatus.AWAITING_REVIEW (two-phase video pipeline)
+    entities = [GenerationProject::class, SceneClip::class, ChatMessage::class, ChatSession::class, GenerationTask::class],
+    version = 6, // v6: GenerationProject.sessionId + GenerationTask (durable video task state machine)
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -162,4 +207,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun sceneClipDao(): SceneClipDao
     abstract fun chatMessageDao(): ChatMessageDao
     abstract fun chatSessionDao(): ChatSessionDao
+    abstract fun generationTaskDao(): GenerationTaskDao
 }
