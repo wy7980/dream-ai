@@ -285,26 +285,38 @@ class AgnesRepository(
             return Result.failure(scriptResult.exceptionOrNull() ?: Exception("脚本生成失败"))
         }
 
-        val scenes = scriptResult.getOrThrow().map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
+        val script = scriptResult.getOrThrow()
+        val styleBible = script.styleBible
+        val scenes = script.scenes.map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
         database.sceneClipDao().insertClips(scenes)
 
         val updatedProject = project.copy(
             totalClips = scenes.size,
+            styleBible = styleBible,
             status = GenerationStatus.GENERATING_CLIPS,
             statusMessage = "已生成 ${scenes.size} 个分镜脚本，准备依次排队生成多段视频 (限速 1次/分, 模型: $effectiveModel)..."
         )
         database.projectDao().updateProject(updatedProject)
 
-        // Step 2: Sequential Video Generation for each clip respecting 1 request/min
+        // Step 2: Sequential Video Generation for each clip respecting 1 request/min.
+        // The previous scene's last frame is chained in as the next scene's first frame so the
+        // clips flow continuously instead of being independent (jumpy) renders.
         val completedClips = mutableListOf<SceneClip>()
+        var prevFrameDataUri: String? = null
         for ((index, clip) in scenes.withIndex()) {
             onProgress("正在生成分镜 ${clip.sceneNumber}/${scenes.size}: ${clip.sceneTitle} (模型: $effectiveModel, 1段/分)...")
-            
+
+            val chainedFromPrev = index > 0 && prevFrameDataUri != null
+            if (chainedFromPrev) {
+                onProgress("分镜 ${clip.sceneNumber}: 已提取上一分镜末帧，保持画面连续衔接...")
+            }
+
             // Mark current clip as generating so carousel UI shows loading animation for this scene
             val generatingClip = clip.copy(
                 status = GenerationStatus.GENERATING_CLIPS,
                 videoUrl = null,
-                previewThumbnailUrl = null
+                previewThumbnailUrl = null,
+                statusMessage = if (chainedFromPrev) "已用上一分镜末帧续接，生成中..." else null
             )
             database.sceneClipDao().updateClip(generatingClip)
 
@@ -314,6 +326,8 @@ class AgnesRepository(
                 projectId = projectId,
                 stylePreset = stylePreset,
                 sourceImageUri = sourceImageUri,
+                styleBible = styleBible,
+                prevFrameImageUri = if (chainedFromPrev) prevFrameDataUri else null,
                 modelOverride = effectiveModel,
                 aspectRatio = aspectRatio,
                 durationSeconds = durationPerScene,
@@ -346,6 +360,9 @@ class AgnesRepository(
                 database.sceneClipDao().updateClip(updatedClip)
                 completedClips.add(updatedClip)
 
+                // Chain continuity: extract this clip's last frame for the next scene.
+                prevFrameDataUri = agnesClient.extractLastFrameDataUri(updatedClip.videoUrl)
+
                 database.projectDao().updateProject(
                     updatedProject.copy(
                         completedClips = completedClips.size,
@@ -373,7 +390,6 @@ class AgnesRepository(
                     statusMessage = "正在渲染拼接所有视频片段..."
                 )
             )
-
             val stitchResult = agnesClient.stitchVideoClips(
                 projectId = projectId,
                 projectTitle = project.title,
@@ -444,12 +460,24 @@ class AgnesRepository(
         database.sceneClipDao().updateClip(resetClip)
         onProgress("正在重跑分镜 ${clip.sceneNumber}: ${clip.sceneTitle} (模型: $effectiveModel)...")
 
+        // Continuity: if the preceding scene is already completed, chain its last frame in
+        // as this clip's first frame so a re-run still blends into the surrounding shots.
+        val prevFrameUri = runCatching {
+            val allClips = database.sceneClipDao().getClipsForProjectDirect(projectId)
+            val prev = allClips
+                .filter { it.sceneNumber == clip.sceneNumber - 1 && it.status == GenerationStatus.COMPLETED }
+                .maxByOrNull { it.sceneNumber }
+            prev?.videoUrl?.let { agnesClient.extractLastFrameDataUri(it) }
+        }.getOrNull()
+
         val genResult = agnesClient.generateSceneVideoClip(
             config = config,
             scene = resetClip,
             projectId = projectId,
             stylePreset = stylePreset,
             sourceImageUri = project.sourceImageUri,
+            styleBible = project.styleBible,
+            prevFrameImageUri = prevFrameUri,
             modelOverride = effectiveModel,
             aspectRatio = aspectRatio,
             durationSeconds = durationSeconds,

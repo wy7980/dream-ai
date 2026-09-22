@@ -14,6 +14,7 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Base64
 import com.example.data.model.AIProvider
@@ -42,6 +43,15 @@ data class VideoClipResult(
     val videoUrl: String?,
     val taskId: String?,
     val statusMessage: String
+)
+
+/**
+ * Result of the script-planning step: the ordered scene list plus an optional global
+ * "style bible" that is injected into every scene prompt to keep the clips consistent.
+ */
+data class VideoScript(
+    val scenes: List<SceneClip>,
+    val styleBible: String? = null
 )
 
 class AgnesClient(
@@ -383,7 +393,7 @@ class AgnesClient(
         themePrompt: String,
         sceneCount: Int = 4,
         stylePreset: String = "Cinematic 3D"
-    ): Result<List<SceneClip>> = withContext(Dispatchers.IO) {
+    ): Result<VideoScript> = withContext(Dispatchers.IO) {
         rateLimitManager.executeRateLimited("Agnes 分镜脚本智能规划") {
             try {
                 val provider = resolveProvider(config, config.chatProviderId)
@@ -392,13 +402,38 @@ class AgnesClient(
                     val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
                     val systemPrompt = """
                         You are Dream AI Film Director. Create a $sceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
-                        Return strict JSON format with an array named "scenes" with objects having:
-                        - sceneNumber (int)
-                        - sceneTitle (string)
-                        - visualPrompt (detailed image/video generation prompt in English)
-                        - cameraMovement (e.g. "Slow Zoom In", "Drone Flyover", "Panning Left to Right", "360 Orbit")
-                        - narration (cinematic narration or dialogue)
-                        - durationSeconds (fixed integer 10)
+
+                        FIRST, define a single GLOBAL "styleBible" that every scene MUST obey so the clips look like one continuous film:
+                        - protagonist: exact appearance (age, hair, face, wardrobe, key props) — keep identical across all scenes
+                        - environment: exact location, era, time of day, weather
+                        - lighting: consistent light direction, mood and time-of-day progression
+                        - colorGrading: consistent palette and film look
+                        - cameraLanguage: consistent lens/framing style and motion grammar
+                        - continuityNote: how each scene flows from the previous one's ending (for seamless stitching)
+
+                        Then create the $sceneCount scenes. Each scene's visualPrompt MUST re-state the protagonist / environment / lighting / colorGrading so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
+
+                        Return strict JSON, no markdown:
+                        {
+                          "styleBible": {
+                            "protagonist": "...",
+                            "environment": "...",
+                            "lighting": "...",
+                            "colorGrading": "...",
+                            "cameraLanguage": "...",
+                            "continuityNote": "..."
+                          },
+                          "scenes": [
+                            {
+                              "sceneNumber": 1,
+                              "sceneTitle": "...",
+                              "visualPrompt": "detailed English video prompt, restating the protagonist and environment",
+                              "cameraMovement": "e.g. Slow Zoom In / Drone Flyover / Panning Left to Right / 360 Orbit",
+                              "narration": "cinematic narration or dialogue",
+                              "durationSeconds": 10
+                            }
+                          ]
+                        }
                     """.trimIndent()
 
                     val messages = JSONArray().apply {
@@ -431,7 +466,12 @@ class AgnesClient(
 
                         val parsedScenes = parseScriptJson(content)
                         if (parsedScenes.isNotEmpty()) {
-                            return@executeRateLimited Result.success(parsedScenes)
+                            return@executeRateLimited Result.success(
+                                VideoScript(
+                                    scenes = parsedScenes,
+                                    styleBible = parseStyleBible(content)
+                                )
+                            )
                         }
                     }
                 }
@@ -439,11 +479,34 @@ class AgnesClient(
                 // Fallback smart script generator
                 delay(1500L)
                 val scenes = createCuratedStoryboard(themePrompt, sceneCount, stylePreset)
-                Result.success(scenes)
+                Result.success(VideoScript(scenes = scenes, styleBible = null))
             } catch (e: Exception) {
                 val scenes = createCuratedStoryboard(themePrompt, sceneCount, stylePreset)
-                Result.success(scenes)
+                Result.success(VideoScript(scenes = scenes, styleBible = null))
             }
+        }
+    }
+
+    /**
+     * Extract the global "style bible" (character / environment / lighting / color / camera
+     * consistency descriptors) that the script planner emits alongside the scene list.
+     * Returns null when the model did not provide one (older prompt / fallback script).
+     */
+    private fun parseStyleBible(jsonString: String): String? {
+        return try {
+            val cleanJson = jsonString.substringAfter("{").substringBeforeLast("}")
+            val root = JSONObject("{$cleanJson}")
+            val bible = root.optJSONObject("styleBible") ?: return null
+            val parts = mutableListOf<String>()
+            for (key in listOf("protagonist", "environment", "lighting", "colorGrading", "cameraLanguage", "continuityNote")) {
+                val value = bible.optString(key, "").trim()
+                if (value.isNotBlank() && !value.equals("null", ignoreCase = true)) {
+                    parts.add(value)
+                }
+            }
+            parts.joinToString(", ").ifBlank { null }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -457,6 +520,8 @@ class AgnesClient(
         projectId: String,
         stylePreset: String,
         sourceImageUri: String? = null,
+        styleBible: String? = null,
+        prevFrameImageUri: String? = null,
         modelOverride: String? = null,
         aspectRatio: String = "16:9",
         durationSeconds: Int = 5,
@@ -487,11 +552,24 @@ class AgnesClient(
 
                     // Local `content://` / `file://` URIs are private to the device and unreachable
                     // from the public API gateway, so they must be inlined as a Data URI first.
-                    val imageDataUri = if (!sourceImageUri.isNullOrBlank()) uriToDataUri(sourceImageUri) else null
+                    // Continuity priority: the previous scene's LAST FRAME (seamless hand-off) wins
+                    // over the user's original reference image; if neither exists the clip is text-to-video.
+                    val continuityImage = prevFrameImageUri?.takeIf { it.isNotBlank() } ?: sourceImageUri
+                    val imageDataUri = if (!continuityImage.isNullOrBlank()) uriToDataUri(continuityImage) else null
 
                     val requestJson = JSONObject().apply {
                         put("model", effectiveModel)
-                        val basePrompt = "${scene.visualPrompt}, camera movement: ${scene.cameraMovement}, style: $stylePreset"
+                        val promptParts = mutableListOf<String>()
+                        promptParts.add(scene.visualPrompt)
+                        promptParts.add("camera movement: ${scene.cameraMovement}")
+                        promptParts.add("style: $stylePreset")
+                        if (!styleBible.isNullOrBlank()) {
+                            promptParts.add("maintain strict visual continuity with: $styleBible")
+                        }
+                        if (!prevFrameImageUri.isNullOrBlank()) {
+                            promptParts.add("continue seamlessly from the previous shot; keep the same subject, wardrobe, lighting and color grading")
+                        }
+                        val basePrompt = promptParts.joinToString(", ")
                         // In reference mode the API expects the input image to be addressed as <Picture 1>.
                         put("prompt", if (imageDataUri != null) "<Picture 1> $basePrompt" else basePrompt)
 
@@ -1065,6 +1143,66 @@ class AgnesClient(
             lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
             bytes.size >= 4 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
             else -> "image/jpeg"
+        }
+    }
+
+    /**
+     * Extract the LAST frame of an already-generated clip as a JPEG Data URI so it can be
+     * fed to the next scene as its first frame, producing a seamless hand-off between shots.
+     *
+     * Accepts http(s) / content:// / file:// sources and returns null on any failure, in which
+     * case the caller falls back to the user's original reference image (or text-to-video).
+     */
+    fun extractLastFrameDataUri(sourceUriStr: String?): String? {
+        if (sourceUriStr.isNullOrBlank()) return null
+        val trimmed = sourceUriStr.trim()
+        var retriever: MediaMetadataRetriever? = null
+        var localFile: File? = null
+        try {
+            retriever = MediaMetadataRetriever()
+            when {
+                trimmed.startsWith("http://") || trimmed.startsWith("https://") -> {
+                    // MediaMetadataRetriever can read remote URLs directly, but a short download
+                    // is far more reliable across devices/OEMs, so cache it locally first.
+                    localFile = File(context.cacheDir, "lastframe_" + Math.abs(trimmed.hashCode()) + ".mp4")
+                    if (!localFile.exists() || localFile.length() == 0L) {
+                        val request = Request.Builder().url(trimmed).get().build()
+                        okHttpClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) return null
+                            val body = response.body ?: return null
+                            body.byteStream().use { input ->
+                                FileOutputStream(localFile).use { output -> input.copyTo(output) }
+                            }
+                        }
+                    }
+                    retriever.setDataSource(localFile.absolutePath)
+                }
+                trimmed.startsWith("content://") -> retriever.setDataSource(context, Uri.parse(trimmed))
+                trimmed.startsWith("file://") -> retriever.setDataSource(Uri.parse(trimmed).path)
+                else -> retriever.setDataSource(trimmed)
+            }
+
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+            // Ask for a frame ~0.1s before the end so we never land past the last decodable frame.
+            val frameTimeUs = ((durationMs - 100L).coerceAtLeast(0L)) * 1000L
+            val frame = retriever.getFrameAtTime(frameTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.frameAtTime
+                ?: return null
+
+            val out = java.io.ByteArrayOutputStream()
+            frame.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            val bytes = out.toByteArray()
+            if (bytes.isEmpty()) return null
+            return "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Log.w("AgnesClient", "extractLastFrameDataUri failed: ${e.message}")
+            return null
+        } finally {
+            try {
+                retriever?.release()
+            } catch (_: Exception) {
+            }
         }
     }
 

@@ -93,7 +93,7 @@ interface ChatMessageDao {
 
 @Database(
     entities = [GenerationProject::class, SceneClip::class, ChatMessage::class],
-    version = 2,
+    version = 3, // v3: GenerationProject.styleBible (inter-scene continuity)
     exportSchema = false
 )
 @TypeConverters(Converters::class)
