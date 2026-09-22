@@ -62,9 +62,19 @@ data class SceneClip(
     val error: String? = null
 )
 
+@Entity(tableName = "chat_sessions")
+data class ChatSession(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val title: String = "新对话",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "chat_messages")
 data class ChatMessage(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    // Owning conversation. Nullable for rows created before sessions existed.
+    val sessionId: String? = null,
     val sender: String, // "user", "agnes_agent", "system"
     val content: String,
     val attachedImageUri: String? = null,
