@@ -35,6 +35,9 @@ data class GenerationProject(
     val statusMessage: String = "",
     val stylePreset: String = "Cinematic 3D",
     val aspectRatio: String = "16:9",
+    // Global "style bible" produced by the script planner: locks protagonist / wardrobe /
+    // environment / lighting / color grading so every scene of one project stays consistent.
+    val styleBible: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val durationSeconds: Int = 0,
     val error: String? = null
