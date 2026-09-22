@@ -46,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -120,6 +121,17 @@ fun ImageStudioScreen(
 
     val lastImageProject = if (selectedProject?.type == ProjectType.IMAGE_TO_IMAGE) selectedProject else null
     val imageHistoryCount = projects.count { it.type == ProjectType.IMAGE_TO_IMAGE }
+
+    // Keep the workspace inputs in sync with the selected task. Covers selection from the history
+    // drawer / gallery / agent AND re-entry into this tab (AnimatedContent disposes the screen, so
+    // `remember` state is recreated and would otherwise fall back to the default prompt).
+    LaunchedEffect(selectedProject?.id) {
+        val project = selectedProject ?: return@LaunchedEffect
+        promptText = project.prompt
+        selectedImageUri = project.sourceImageUri
+        if (project.stylePreset.isNotBlank()) selectedStyle = project.stylePreset
+        if (project.aspectRatio.isNotBlank()) selectedRatio = project.aspectRatio
+    }
 
     Box(
         modifier = modifier
