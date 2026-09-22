@@ -47,6 +47,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -125,6 +126,21 @@ fun VideoPipelineScreen(
 
     val activeVideoProject = if (selectedProject?.type == ProjectType.VIDEO_SCRIPT_AND_STITCH) selectedProject else null
     val videoHistoryCount = projects.count { it.type == ProjectType.VIDEO_SCRIPT_AND_STITCH }
+
+    // Keep the workspace inputs in sync with the selected task. This covers selection from the
+    // history drawer, the gallery, the agent, AND re-entry into this tab (where the screen's
+    // `remember` state is recreated because AnimatedContent disposes it on switch). Without it
+    // the prompt box silently falls back to the default prompt while a history task is shown.
+    LaunchedEffect(selectedProject?.id) {
+        val project = selectedProject ?: return@LaunchedEffect
+        themePrompt = project.prompt
+        sourceImageUri = project.sourceImageUri
+        if (project.totalClips in VideoSceneLimits.MIN..VideoSceneLimits.MAX) {
+            sceneCount = project.totalClips
+        }
+        if (project.stylePreset.isNotBlank()) selectedStyle = project.stylePreset
+        if (project.aspectRatio.isNotBlank()) selectedRatio = project.aspectRatio
+    }
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {

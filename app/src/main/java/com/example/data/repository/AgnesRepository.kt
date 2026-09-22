@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import com.example.data.api.AgnesClient
 import com.example.data.api.RateLimitManager
 import com.example.data.local.AppDatabase
@@ -389,6 +390,33 @@ class AgnesRepository(
                 onProgress("分镜 ${clip.sceneNumber}: 已提取上一分镜末帧，保持画面连续衔接...")
             }
 
+            // Dual-frame control: predict this shot's END frame from its start frame + prompt, then
+            // let the video model interpolate between the two. This is what removes the "jump" at
+            // the seam — the clip is no longer free-running from a single anchor. If prediction
+            // fails we degrade gracefully to single-frame keyframe control.
+            var predictedEndFrameUri: String? = null
+            if (chainedFromPrev) {
+                onProgress("分镜 ${clip.sceneNumber}: 正在预测本段尾帧以锁定运镜轨迹...")
+                val endFramePrompt = buildString {
+                    append("Cinematic final frame of the shot described as: ")
+                    append(clip.visualPrompt)
+                    if (clip.cameraMovement.isNotBlank()) append(", camera movement: ${clip.cameraMovement}")
+                    append(", style: $stylePreset")
+                    if (!styleBible.isNullOrBlank()) append(", consistent with: $styleBible")
+                    append(". This is the LAST frame, so the action has advanced to its end state while keeping the exact same subject, wardrobe, lighting and color grading as the first frame.")
+                }
+                val endFrameResult = agnesClient.generateFrameImage(
+                    config = _configFlow.value,
+                    prompt = endFramePrompt,
+                    firstFrameDataUri = prevFrameDataUri,
+                    aspectRatio = aspectRatio
+                )
+                predictedEndFrameUri = endFrameResult.getOrNull()
+                if (predictedEndFrameUri == null) {
+                    Log.w("AgnesRepository", "尾帧预测失败，降级为单帧首帧控制: ${endFrameResult.exceptionOrNull()?.message}")
+                }
+            }
+
             // Mark current clip as generating so carousel UI shows loading animation for this scene
             val generatingClip = clip.copy(
                 status = GenerationStatus.GENERATING_CLIPS,
@@ -406,6 +434,7 @@ class AgnesRepository(
                 sourceImageUri = sourceImageUri,
                 styleBible = styleBible,
                 prevFrameImageUri = if (chainedFromPrev) prevFrameDataUri else null,
+                lastFrameImageUri = predictedEndFrameUri,
                 seed = projectSeed,
                 modelOverride = effectiveModel,
                 aspectRatio = aspectRatio,
@@ -600,6 +629,28 @@ class AgnesRepository(
             prev?.videoUrl?.let { agnesClient.extractLastFrameDataUri(it) }
         }.getOrNull()
 
+        // Dual-frame control on re-run: predict this clip's end frame from its start frame so a
+        // re-rendered shot still blends into the surrounding clips. Degrades to single-frame
+        // control when prediction is unavailable.
+        var predictedEndFrameUri: String? = null
+        if (!prevFrameUri.isNullOrBlank()) {
+            onProgress("正在预测分镜 ${clip.sceneNumber} 尾帧以锁定运镜轨迹...")
+            val endFramePrompt = buildString {
+                append("Cinematic final frame of the shot described as: ")
+                append(resetClip.visualPrompt)
+                if (resetClip.cameraMovement.isNotBlank()) append(", camera movement: ${resetClip.cameraMovement}")
+                append(", style: $stylePreset")
+                if (!project.styleBible.isNullOrBlank()) append(", consistent with: ${project.styleBible}")
+                append(". This is the LAST frame, so the action has advanced to its end state while keeping the exact same subject, wardrobe, lighting and color grading as the first frame.")
+            }
+            predictedEndFrameUri = agnesClient.generateFrameImage(
+                config = config,
+                prompt = endFramePrompt,
+                firstFrameDataUri = prevFrameUri,
+                aspectRatio = aspectRatio
+            ).getOrNull()
+        }
+
         val genResult = agnesClient.generateSceneVideoClip(
             config = config,
             scene = resetClip,
@@ -608,6 +659,7 @@ class AgnesRepository(
             sourceImageUri = project.sourceImageUri,
             styleBible = project.styleBible,
             prevFrameImageUri = prevFrameUri,
+            lastFrameImageUri = predictedEndFrameUri,
             seed = (projectId.hashCode().toLong() and 0x7FFFFFFFL),
             modelOverride = effectiveModel,
             aspectRatio = aspectRatio,

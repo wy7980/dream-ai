@@ -389,6 +389,83 @@ class AgnesClient(
     }
 
     /**
+     * Predict a single intermediate frame image from a starting frame + a target composition.
+     *
+     * Used by the dual-frame video pipeline: given the PREVIOUS clip's last frame, we ask the
+     * image model to paint what the END of the upcoming shot should look like, then hand that
+     * back to the video model as `last_frame`. With both `first_frame` and `last_frame` pinned,
+     * the video model interpolates between them instead of free-running — the biggest single
+     * win for smooth, non-drifting transitions.
+     *
+     * @return the generated frame as a publicly reachable image URL, or null on any failure
+     *         (callers then degrade to single-frame keyframe control).
+     */
+    suspend fun generateFrameImage(
+        config: AgnesApiConfig,
+        prompt: String,
+        firstFrameDataUri: String?,
+        aspectRatio: String = "16:9",
+        modelOverride: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        rateLimitManager.executeRateLimited("Agnes 分镜尾帧预测") {
+            try {
+                val provider = resolveProvider(config, config.imageProviderId)
+                if (provider.apiKey.isBlank()) {
+                    return@executeRateLimited Result.failure(IllegalStateException("图像 Provider 未配置 API Key"))
+                }
+                val base = provider.endpointUrl.trim().removeSuffix("/")
+                val endpoint = if (base.endsWith("/v1")) "$base/images/generations" else "$base/v1/images/generations"
+
+                val frameModel = modelOverride?.trim()?.ifBlank { null }
+                    ?: config.modelName.trim().ifBlank { "agnes-image-2.5-flash" }
+                val requestJson = JSONObject().apply {
+                    put("model", frameModel)
+                    put("prompt", prompt)
+                    // Keep the predicted frame small: it only needs to guide motion, and a lighter
+                    // payload keeps the downstream video request fast.
+                    put("size", "1K")
+                    put("ratio", aspectRatio)
+                    put("n", 1)
+                    put("extra_body", JSONObject().apply {
+                        put("response_format", "url")
+                        if (!firstFrameDataUri.isNullOrBlank()) {
+                            put("image", JSONArray().put(firstFrameDataUri))
+                        }
+                    })
+                }
+
+                val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Authorization", "$headerName ${provider.apiKey.trim()}")
+                    .header("Content-Type", "application/json")
+                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@executeRateLimited Result.failure(
+                            IOException("尾帧预测失败 HTTP ${response.code}")
+                        )
+                    }
+                    val body = response.body?.string() ?: ""
+                    val json = JSONObject(body)
+                    val dataArr = json.optJSONArray("data")
+                    val url = dataArr?.optJSONObject(0)?.optString("url").orEmpty()
+                    if (url.isNotBlank()) {
+                        Result.success(url)
+                    } else {
+                        Result.failure(IOException("尾帧预测未返回图片 URL"))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("AgnesClient", "generateFrameImage failed: ${e.message}")
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Step 1: AI Video Script Planning
      * Deconstructs image & story concept into 3-5 cinematic sequential scene scripts
      */
@@ -527,6 +604,7 @@ class AgnesClient(
         sourceImageUri: String? = null,
         styleBible: String? = null,
         prevFrameImageUri: String? = null,
+        lastFrameImageUri: String? = null,
         seed: Long? = null,
         modelOverride: String? = null,
         aspectRatio: String = "16:9",
@@ -562,6 +640,10 @@ class AgnesClient(
                     // over the user's original reference image; if neither exists the clip is text-to-video.
                     val continuityImage = prevFrameImageUri?.takeIf { it.isNotBlank() } ?: sourceImageUri
                     val imageDataUri = if (!continuityImage.isNullOrBlank()) uriToDataUri(continuityImage) else null
+                    // Optional dual-frame control: a predicted END frame for this shot. When present
+                    // (and the model supports keyframes) the clip is generated as an interpolation
+                    // between first_frame and last_frame, which is what keeps motion continuous.
+                    val lastFrameDataUri = if (!lastFrameImageUri.isNullOrBlank()) uriToDataUri(lastFrameImageUri) else null
 
                     val requestJson = JSONObject().apply {
                         put("model", effectiveModel)
@@ -575,33 +657,52 @@ class AgnesClient(
                         if (!prevFrameImageUri.isNullOrBlank()) {
                             promptParts.add("continue seamlessly from the previous shot; keep the same subject, wardrobe, lighting and color grading")
                         }
+                        if (!lastFrameDataUri.isNullOrBlank()) {
+                            promptParts.add("end the shot exactly on the provided final-frame composition; the motion must flow smoothly from the first frame to the last")
+                        }
                         val basePrompt = promptParts.joinToString(", ")
-                        // In reference mode the API expects the input image to be addressed as <Picture 1>.
-                        put("prompt", if (imageDataUri != null) "<Picture 1> $basePrompt" else basePrompt)
+                        // NOTE: the 2.5 series anchors continuity with `mode:"keyframe"` + `first_frame`
+                        // (see the branches below), NOT with a style reference. The old `<Picture 1>`
+                        // prefix is reference-mode syntax: it made the model merely borrow the look of
+                        // the previous frame instead of continuing its motion, which is exactly why the
+                        // hand-off looked unnatural. It must not be emitted here.
+                        put("prompt", basePrompt)
 
                         when {
                             // Agnes Video 2.5 Flash: `mode` is REQUIRED; size is fixed to 720P; duration is `seconds` ("4"-"12")
                             effectiveModel.contains("2.5-flash", ignoreCase = true) ||
                             effectiveModel.contains("25-flash", ignoreCase = true) ||
                             effectiveModel.contains("2.5_flash", ignoreCase = true) -> {
-                                put("mode", if (imageDataUri != null) "reference" else "text")
+                                // `keyframe` + `first_frame` pins the opening frame to the previous clip's
+                                // last frame (or the user's image for scene 1), so consecutive shots truly
+                                // continue instead of merely sharing a look. `text` when there is no image.
+                                if (imageDataUri != null) {
+                                    put("mode", "keyframe")
+                                    put("first_frame", imageDataUri)
+                                    // Dual-frame interpolation when we have a predicted end frame.
+                                    if (lastFrameDataUri != null) put("last_frame", lastFrameDataUri)
+                                } else {
+                                    put("mode", "text")
+                                }
                                 put("size", "720P")
                                 put("aspect_ratio", normalizedAspectRatio)
                                 put("seconds", sceneDuration.coerceIn(4, 12).toString())
-                                if (imageDataUri != null) {
-                                    // Reference mode expects an array of image URLs / Data URIs.
-                                    put("images", JSONArray().put(imageDataUri))
-                                }
+                                // The 2.5 series accepts `seed` too; it keeps the render stable across re-runs.
+                                if (seed != null) put("seed", seed)
                             }
                             // Agnes Video 2.5 Standard: same contract as Flash (`mode` required, `seconds` duration)
                             effectiveModel.contains("2.5", ignoreCase = true) || effectiveModel.contains("25", ignoreCase = true) -> {
-                                put("mode", if (imageDataUri != null) "reference" else "text")
+                                if (imageDataUri != null) {
+                                    put("mode", "keyframe")
+                                    put("first_frame", imageDataUri)
+                                    if (lastFrameDataUri != null) put("last_frame", lastFrameDataUri)
+                                } else {
+                                    put("mode", "text")
+                                }
                                 put("size", "720P")
                                 put("aspect_ratio", normalizedAspectRatio)
                                 put("seconds", sceneDuration.coerceIn(4, 12).toString())
-                                if (imageDataUri != null) {
-                                    put("images", JSONArray().put(imageDataUri))
-                                }
+                                if (seed != null) put("seed", seed)
                             }
                             // Agnes Video V2.0: width, height, num_frames (121 or 241), frame_rate (24), `image` for i2v
                             effectiveModel.contains("v2.0", ignoreCase = true) ||

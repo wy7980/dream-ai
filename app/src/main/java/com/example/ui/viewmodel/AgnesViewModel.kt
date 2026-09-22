@@ -27,6 +27,7 @@ import com.example.util.DocumentExportHelper
 import com.example.util.DocumentType
 import com.example.util.GeneratedDocument
 import java.io.File
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -78,6 +79,12 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedProjectClips = MutableStateFlow<List<SceneClip>>(emptyList())
     val selectedProjectClips: StateFlow<List<SceneClip>> = _selectedProjectClips.asStateFlow()
+
+    // The active collector for the selected project's clips. Kept so we can cancel the previous
+    // one on every selection — otherwise stale collectors from other projects keep pushing their
+    // clips into _selectedProjectClips (Room re-emits on any write), making the studio flip
+    // between tasks whenever a background generation or re-run touches another project.
+    private var selectedClipsJob: Job? = null
 
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
@@ -686,9 +693,16 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectProject(project: GenerationProject?) {
+        // Drop the previous project's collector before switching, so it can never overwrite the
+        // clip list for the newly selected project (fixes content jumping between tasks).
+        selectedClipsJob?.cancel()
+        selectedClipsJob = null
         _selectedProject.value = project
+        // Clear immediately so the previous task's clips never linger on screen while the new
+        // collector warms up (Room re-emits asynchronously).
+        _selectedProjectClips.value = emptyList()
         if (project != null) {
-            viewModelScope.launch {
+            selectedClipsJob = viewModelScope.launch {
                 repository.getClipsForProject(project.id).collect { clips ->
                     _selectedProjectClips.value = clips
                 }
