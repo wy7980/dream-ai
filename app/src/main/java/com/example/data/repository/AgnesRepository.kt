@@ -290,6 +290,10 @@ class AgnesRepository(
         val scenes = script.scenes.map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
         database.sceneClipDao().insertClips(scenes)
 
+        // Deterministic per-project seed: keeps the render stable across re-runs of the same
+        // project (less flicker / subject drift) while still varying between projects.
+        val projectSeed = (projectId.hashCode().toLong() and 0x7FFFFFFFL)
+
         val updatedProject = project.copy(
             totalClips = scenes.size,
             styleBible = styleBible,
@@ -328,6 +332,7 @@ class AgnesRepository(
                 sourceImageUri = sourceImageUri,
                 styleBible = styleBible,
                 prevFrameImageUri = if (chainedFromPrev) prevFrameDataUri else null,
+                seed = projectSeed,
                 modelOverride = effectiveModel,
                 aspectRatio = aspectRatio,
                 durationSeconds = durationPerScene,
@@ -478,6 +483,7 @@ class AgnesRepository(
             sourceImageUri = project.sourceImageUri,
             styleBible = project.styleBible,
             prevFrameImageUri = prevFrameUri,
+            seed = (projectId.hashCode().toLong() and 0x7FFFFFFFL),
             modelOverride = effectiveModel,
             aspectRatio = aspectRatio,
             durationSeconds = durationSeconds,

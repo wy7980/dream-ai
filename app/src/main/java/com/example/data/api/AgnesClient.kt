@@ -17,6 +17,9 @@ import android.graphics.Shader
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Base64
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.FFprobeKit
+import com.arthenica.ffmpegkit.ReturnCode
 import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
@@ -522,6 +525,7 @@ class AgnesClient(
         sourceImageUri: String? = null,
         styleBible: String? = null,
         prevFrameImageUri: String? = null,
+        seed: Long? = null,
         modelOverride: String? = null,
         aspectRatio: String = "16:9",
         durationSeconds: Int = 5,
@@ -614,6 +618,9 @@ class AgnesClient(
                                 put("height", h)
                                 put("num_frames", frames)
                                 put("frame_rate", 24)
+                                // A fixed seed keeps the subject/lighting stable when the same scene
+                                // is re-rendered, which further reduces flicker between shots.
+                                if (seed != null) put("seed", seed)
                                 if (imageDataUri != null) {
                                     put("image", imageDataUri)
                                 }
@@ -928,12 +935,24 @@ class AgnesClient(
 
             var stitchedOk = false
             if (localClipFiles.isNotEmpty()) {
+                // Prefer a real ffmpeg cross-fade (re-encode) so scene changes dissolve instead
+                // of hard-cutting; fall back to the lossless MediaMuxer remux if ffmpeg is missing
+                // or fails (e.g. a clip has no decodable video stream).
                 stitchedOk = try {
-                    muxLocalClips(localClipFiles, masterFile)
-                    true
+                    xfadeStitchClips(localClipFiles, masterFile)
                 } catch (e: Exception) {
-                    Log.e("AgnesClient", "MediaMuxer stitch failed: ${e.message}")
+                    Log.e("AgnesClient", "ffmpeg xfade stitch failed: ${e.message}")
                     false
+                }
+                if (!stitchedOk) {
+                    Log.w("AgnesClient", "Falling back to MediaMuxer hard-cut remux")
+                    stitchedOk = try {
+                        muxLocalClips(localClipFiles, masterFile)
+                        true
+                    } catch (e: Exception) {
+                        Log.e("AgnesClient", "MediaMuxer stitch failed: ${e.message}")
+                        false
+                    }
                 }
             }
 
@@ -1011,6 +1030,124 @@ class AgnesClient(
             null
         }
     }
+
+    /**
+     * Stitch clips with real cross-fade transitions using ffmpeg's `xfade` filter.
+     *
+     * Unlike the MediaMuxer remux (a hard cut), this re-encodes the clips so consecutive
+     * shots dissolve into each other. All clips are first normalised to a common
+     * resolution / frame-rate / SAR so `xfade` can link them without geometry mismatches.
+     *
+     * @return true when the master file was produced successfully, false otherwise (the
+     *         caller then falls back to [muxLocalClips]).
+     */
+    private fun xfadeStitchClips(clipFiles: List<File>, outputFile: File): Boolean {
+        if (outputFile.exists()) outputFile.delete()
+
+        // Resolve real per-clip duration + geometry; bail out to the remux path if unknown.
+        val infos = clipFiles.map { probeClipInfo(it) }
+        if (infos.any { it == null }) {
+            Log.w("AgnesClient", "xfade: could not probe every clip, skipping transitions")
+            return false
+        }
+        val probed = infos.filterNotNull()
+
+        // Normalise to the first clip's geometry (or a sane 720p default).
+        val targetW = (probed.firstOrNull { it.width > 0 }?.width ?: 1280).let { if (it % 2 == 1) it + 1 else it }
+        val targetH = (probed.firstOrNull { it.height > 0 }?.height ?: 720).let { if (it % 2 == 1) it + 1 else it }
+        val fps = 24
+
+        val transitionSeconds = 0.6
+
+        val args = mutableListOf<String>()
+        clipFiles.forEach { file ->
+            args.add("-i")
+            args.add(file.absolutePath)
+        }
+
+        val filter = StringBuilder()
+        // 1) Normalise each input: square pixels, fixed size + fps, uniform timebase.
+        clipFiles.indices.forEach { i ->
+            filter.append("[$i:v]scale=$targetW:$targetH:force_original_aspect_ratio=decrease,")
+            filter.append("pad=$targetW:$targetH:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=$fps,format=yuv420p")
+            filter.append("[v$i];")
+        }
+
+        // 2) Chain xfade transitions; each output runs `offset` seconds after the previous.
+        var lastLabel = "v0"
+        var accumulated = probed[0].durationSec
+        for (i in 1 until clipFiles.size) {
+            // Never let the transition eat a whole clip.
+            val maxTransition = (minOf(accumulated, probed[i].durationSec) / 2.0).coerceAtLeast(0.1)
+            val t = transitionSeconds.coerceAtMost(maxTransition)
+            val offset = (accumulated - t).coerceAtLeast(0.0)
+            val outLabel = if (i == clipFiles.size - 1) "vout" else "x$i"
+            filter.append("[$lastLabel][v$i]xfade=transition=fade:duration=${fmtSeconds(t)}:offset=${fmtSeconds(offset)}[$outLabel];")
+            accumulated = accumulated + probed[i].durationSec - t
+            lastLabel = outLabel
+        }
+        var filterGraph = filter.toString().trimEnd(';')
+        if (lastLabel != "vout") {
+            // Single-clip case: no xfade chain was produced, just re-encode the normalised stream.
+            filterGraph = "[v0]null[vout]"
+        }
+
+        args.add("-filter_complex")
+        args.add(filterGraph)
+        args.add("-map")
+        args.add("[vout]")
+        args.add("-an")
+        args.add("-c:v")
+        args.add("libx264")
+        args.add("-preset")
+        args.add("medium")
+        args.add("-crf")
+        args.add("23")
+        args.add("-pix_fmt")
+        args.add("yuv420p")
+        args.add("-movflags")
+        args.add("+faststart")
+        args.add("-y")
+        args.add(outputFile.absolutePath)
+
+        val session = FFmpegKit.executeWithArguments(args.toTypedArray())
+        val returnCode = session.returnCode
+        if (ReturnCode.isSuccess(returnCode) && outputFile.exists() && outputFile.length() > 0) {
+            Log.i("AgnesClient", "ffmpeg xfade stitch OK -> ${outputFile.absolutePath} (${outputFile.length()} bytes)")
+            return true
+        }
+        Log.e("AgnesClient", "ffmpeg xfade stitch failed rc=${returnCode?.value}: ${session.failStackTrace?.take(300)}")
+        if (outputFile.exists()) outputFile.delete()
+        return false
+    }
+
+    private data class ClipProbe(
+        val width: Int,
+        val height: Int,
+        val durationSec: Double
+    )
+
+    /**
+     * Probe a clip's video stream geometry and duration via FFprobe.
+     * Returns null when the file has no decodable video stream (e.g. audio-only fallback).
+     */
+    private fun probeClipInfo(file: File): ClipProbe? {
+        return try {
+            val session = FFprobeKit.getMediaInformation(file.absolutePath)
+            val info = session.mediaInformation ?: return null
+            val video = info.streams?.firstOrNull { it.type.equals("video", ignoreCase = true) } ?: return null
+            val width = video.width?.toInt() ?: 0
+            val height = video.height?.toInt() ?: 0
+            val durationSec = info.duration?.toDoubleOrNull() ?: 0.0
+            if (durationSec <= 0.0) return null
+            ClipProbe(width, height, durationSec)
+        } catch (e: Exception) {
+            Log.w("AgnesClient", "probeClipInfo failed for ${file.name}: ${e.message}")
+            null
+        }
+    }
+
+    private fun fmtSeconds(value: Double): String = String.format(java.util.Locale.US, "%.3f", value)
 
     /**
      * Remuxes a list of MP4 clips into one MP4 with [android.media.MediaMuxer].
