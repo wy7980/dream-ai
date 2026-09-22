@@ -26,6 +26,7 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.SceneClip
 import com.example.data.model.TavilySearchResponse
 import com.example.data.model.TavilySearchResultItem
+import com.example.data.model.VideoSceneLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -394,9 +395,10 @@ class AgnesClient(
     suspend fun generateVideoScript(
         config: AgnesApiConfig,
         themePrompt: String,
-        sceneCount: Int = 4,
+        sceneCount: Int = VideoSceneLimits.DEFAULT,
         stylePreset: String = "Cinematic 3D"
     ): Result<VideoScript> = withContext(Dispatchers.IO) {
+        val effectiveSceneCount = VideoSceneLimits.clamp(sceneCount)
         rateLimitManager.executeRateLimited("Agnes 分镜脚本智能规划") {
             try {
                 val provider = resolveProvider(config, config.chatProviderId)
@@ -404,7 +406,7 @@ class AgnesClient(
                     val base = provider.endpointUrl.trim().removeSuffix("/")
                     val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
                     val systemPrompt = """
-                        You are Dream AI Film Director. Create a $sceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
+                        You are Dream AI Film Director. Create a $effectiveSceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
 
                         FIRST, define a single GLOBAL "styleBible" that every scene MUST obey so the clips look like one continuous film:
                         - protagonist: exact appearance (age, hair, face, wardrobe, key props) — keep identical across all scenes
@@ -414,7 +416,7 @@ class AgnesClient(
                         - cameraLanguage: consistent lens/framing style and motion grammar
                         - continuityNote: how each scene flows from the previous one's ending (for seamless stitching)
 
-                        Then create the $sceneCount scenes. Each scene's visualPrompt MUST re-state the protagonist / environment / lighting / colorGrading so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
+                        Then create the $effectiveSceneCount scenes. Each scene's visualPrompt MUST re-state the protagonist / environment / lighting / colorGrading so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
 
                         Return strict JSON, no markdown:
                         {
@@ -481,10 +483,10 @@ class AgnesClient(
 
                 // Fallback smart script generator
                 delay(1500L)
-                val scenes = createCuratedStoryboard(themePrompt, sceneCount, stylePreset)
+                val scenes = createCuratedStoryboard(themePrompt, effectiveSceneCount, stylePreset)
                 Result.success(VideoScript(scenes = scenes, styleBible = null))
             } catch (e: Exception) {
-                val scenes = createCuratedStoryboard(themePrompt, sceneCount, stylePreset)
+                val scenes = createCuratedStoryboard(themePrompt, effectiveSceneCount, stylePreset)
                 Result.success(VideoScript(scenes = scenes, styleBible = null))
             }
         }
@@ -1716,12 +1718,16 @@ class AgnesClient(
         val templates = listOf(
             Triple("启幕：宏大世界观展现", "Slow Aerial Zoom Out over stunning futuristic landscape with dramatic neon skyline and atmospheric volumetric lighting", "缓慢推远俯瞰，展现宏伟世界全貌与晨曦光影"),
             Triple("聚焦：关键主体与动态张力", "Dynamic Tracking Shot following the central protagonist discovering a pulsating quantum crystal anomaly", "低角度跟镜头推进，捕捉主体神秘能量脉动"),
+            Triple("递进：环境探索与线索浮现", "Handheld Parallax Push through a rain-slicked neon alley as holographic clues flicker to life", "手持视差推进，霓虹雨巷中全息线索逐一亮起"),
             Triple("高潮：能量爆发与视觉冲击", "Fast Dolly In & Orbiting 360 Shot during energy surge with glowing particle cascades and hyperspace warping", "全方位旋转环绕特写，能量波纹与光子粒子爆发扩散"),
+            Triple("转折：危机与抉择时刻", "Slow-Motion Crash Zoom onto the protagonist's face as alarms flare and debris drifts past", "升格急推特写，警报闪烁、碎片掠过，危机与抉择降临"),
             Triple("尾声：电影级史诗定格", "Cinematic Sunset Crane Shot rising slowly into the starry twilight as peace returns to the neon horizon", "摇臂镜头升起，星空与余晖交织，定格电影级史诗终章"),
             Triple("余韵：未来无限延展", "Macro lens slowly shifting focus from neon dewdrop to boundless cosmos reflection", "微距焦点转移，水滴中折射无垠宇宙光芒")
         )
 
-        return (0 until count.coerceIn(2, 5)).map { i ->
+        // Scene count is user-selectable from 1 to 20; keep the fallback storyboard in the
+        // same range instead of the old hard 2..5 cap.
+        return (0 until VideoSceneLimits.clamp(count)).map { i ->
             val template = templates[i % templates.size]
             val camera = when (i % 4) {
                 0 -> "航拍远景下压 (Aerial Crane Down)"

@@ -43,6 +43,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -61,13 +63,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import coil.compose.AsyncImage
 import com.example.data.model.GenerationProject
 import com.example.data.model.GenerationStatus
 import com.example.data.model.ProjectType
+import com.example.data.model.VideoSceneLimits
 import com.example.ui.components.ImagePickerBottomSheet
 import com.example.ui.components.RateLimitBanner
 import com.example.ui.components.SceneCard
+import com.example.ui.components.StudioHistoryDrawer
+import com.example.ui.components.StudioTopBar
 import com.example.ui.components.VideoTimelinePlayer
 import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
@@ -99,6 +105,7 @@ fun VideoPipelineScreen(
     val selectedProject by viewModel.selectedProject.collectAsState()
     val selectedClips by viewModel.selectedProjectClips.collectAsState()
     val rerunningClipId by viewModel.rerunningClipId.collectAsState()
+    val projects by viewModel.projects.collectAsState()
 
     var themePrompt by remember {
         mutableStateOf(
@@ -109,18 +116,31 @@ fun VideoPipelineScreen(
     var selectedModel by remember { mutableStateOf("agnes-video-2.5-flash") }
     var selectedRatio by remember { mutableStateOf("16:9") }
     var sceneDuration by remember { mutableIntStateOf(5) }
-    var sceneCount by remember { mutableIntStateOf(4) }
+    var sceneCount by remember { mutableIntStateOf(VideoSceneLimits.DEFAULT) }
     var selectedStyle by remember { mutableStateOf("Cinematic 3D") }
     var showImagePicker by remember { mutableStateOf(false) }
+    var showHistoryDrawer by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val activeVideoProject = if (selectedProject?.type == ProjectType.VIDEO_SCRIPT_AND_STITCH) selectedProject else null
+    val videoHistoryCount = projects.count { it.type == ProjectType.VIDEO_SCRIPT_AND_STITCH }
+
+    Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Minimalist native top bar: history lives in a drawer, not on the workspace screen.
+            StudioTopBar(
+                title = "AI 视频分镜与拼接",
+                subtitle = "分镜规划 ➔ 逐段生成 ➔ 一键拼接",
+                icon = Icons.Default.Movie,
+                gradient = listOf(AgnesCyan, AgnesViolet),
+                onOpenHistory = { showHistoryDrawer = true },
+                historyBadgeCount = videoHistoryCount
+            )
 
     LazyColumn(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 12.dp)
             .testTag("video_pipeline_screen"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -156,7 +176,7 @@ fun VideoPipelineScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "AI 视频分镜拆解与无缝拼接流水线",
+                        text = "电影短片创作工作台",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = AppTextPrimary
@@ -358,36 +378,49 @@ fun VideoPipelineScreen(
                             }
                         }
 
-                        Column {
-                            Text(
-                                text = "分镜幕数:",
-                                fontSize = 11.sp,
-                                color = AppTextSecondary,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(3, 4, 5).forEach { count ->
-                                    val isSelected = sceneCount == count
-                                    Surface(
-                                        onClick = { sceneCount = count },
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (isSelected) AgnesCyan else AppSubtleBg,
-                                        modifier = Modifier.size(width = 40.dp, height = 28.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = "${count}幕",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) Color(0xFF0A0D14) else AppTextPrimary
-                                            )
-                                        }
-                                    }
-                                }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "分镜幕数:",
+                                    fontSize = 11.sp,
+                                    color = AppTextSecondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "$sceneCount 幕",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AgnesCyan
+                                )
                             }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "可选 ${VideoSceneLimits.MIN}-${VideoSceneLimits.MAX} 幕 (每幕 1 次限速请求)",
+                                fontSize = 9.sp,
+                                color = AppTextSecondary
+                            )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Scene count slider (1..20). Default is 1 so a first run is fast and cheap;
+                    // each extra scene adds one rate-limited video request to the pipeline.
+                    Slider(
+                        value = sceneCount.toFloat(),
+                        onValueChange = { sceneCount = it.roundToInt().coerceIn(VideoSceneLimits.MIN, VideoSceneLimits.MAX) },
+                        valueRange = VideoSceneLimits.MIN.toFloat()..VideoSceneLimits.MAX.toFloat(),
+                        steps = VideoSceneLimits.MAX - VideoSceneLimits.MIN - 1,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("scene_count_slider"),
+                        colors = SliderDefaults.colors(
+                            thumbColor = AgnesCyan,
+                            activeTrackColor = AgnesCyan,
+                            inactiveTrackColor = AppSubtleBg
+                        )
+                    )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -524,6 +557,15 @@ fun VideoPipelineScreen(
                         activeVideoProject?.let { proj ->
                             viewModel.rerunSceneClip(proj.id, clip.id)
                         }
+                    },
+                    onSavePrompt = { title, visualPrompt, cameraMovement, narration ->
+                        viewModel.updateScenePrompt(
+                            clipId = clip.id,
+                            title = title,
+                            visualPrompt = visualPrompt,
+                            cameraMovement = cameraMovement,
+                            narration = narration
+                        )
                     }
                 )
             }
@@ -532,6 +574,30 @@ fun VideoPipelineScreen(
         item {
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+        }
+
+        // Studio history drawer: only video projects, so history is no longer dumped inline.
+        StudioHistoryDrawer(
+            visible = showHistoryDrawer,
+            title = "视频拼接历史",
+            projects = projects,
+            filterType = ProjectType.VIDEO_SCRIPT_AND_STITCH,
+            selectedProjectId = selectedProject?.id,
+            onDismiss = { showHistoryDrawer = false },
+            onSelectProject = { project ->
+                viewModel.selectProject(project)
+                showHistoryDrawer = false
+            },
+            onNewSession = {
+                showHistoryDrawer = false
+                viewModel.selectProject(null)
+                themePrompt = ""
+                sourceImageUri = null
+                sceneCount = VideoSceneLimits.DEFAULT
+            },
+            onDeleteProject = { project -> viewModel.deleteProject(project) }
+        )
     }
 
     if (showImagePicker) {

@@ -29,6 +29,53 @@ class AgnesRepository(
 ) {
     private val prefs: SharedPreferences = context.getSharedPreferences("agnes_prefs", Context.MODE_PRIVATE)
 
+    companion object {
+        /** Lowest selectable storyboard scene count. */
+        const val MIN_SCENE_COUNT = 1
+
+        /** Highest selectable storyboard scene count (each scene costs one rate-limited request). */
+        const val MAX_SCENE_COUNT = 20
+
+        /** Curated fallback storyboard beats used when the planner returns too few scenes. */
+        private val FALLBACK_SCENE_TEMPLATES = listOf(
+            Triple(
+                "启幕：宏大世界观展现",
+                "Slow Aerial Zoom Out over a stunning futuristic landscape with dramatic neon skyline and atmospheric volumetric lighting",
+                "缓慢推远俯瞰，展现宏伟世界全貌与晨曦光影"
+            ),
+            Triple(
+                "聚焦：关键主体与动态张力",
+                "Dynamic Tracking Shot following the central protagonist discovering a pulsating quantum crystal anomaly",
+                "低角度跟镜头推进，捕捉主体神秘能量脉动"
+            ),
+            Triple(
+                "递进：环境探索与线索浮现",
+                "Handheld Parallax Push through a rain-slicked neon alley as holographic clues flicker to life",
+                "手持视差推进，霓虹雨巷中全息线索逐一亮起"
+            ),
+            Triple(
+                "高潮：能量爆发与视觉冲击",
+                "Fast Dolly In & Orbiting 360 Shot during an energy surge with glowing particle cascades and hyperspace warping",
+                "全方位旋转环绕特写，能量波纹与光子粒子爆发扩散"
+            ),
+            Triple(
+                "转折：危机与抉择时刻",
+                "Slow-Motion Crash Zoom onto the protagonist's face as alarms flare and debris drifts past",
+                "升格急推特写，警报闪烁、碎片掠过，危机与抉择降临"
+            ),
+            Triple(
+                "尾声：电影级史诗定格",
+                "Cinematic Sunset Crane Shot rising slowly into the starry twilight as peace returns to the neon horizon",
+                "摇臂镜头升起，星空与余晖交织，定格电影级史诗终章"
+            ),
+            Triple(
+                "余韵：未来无限延展",
+                "Macro lens slowly shifting focus from a neon dewdrop to the boundless cosmos reflected within it",
+                "微距焦点转移，水滴中折射无垠宇宙光芒"
+            )
+        )
+    }
+
     private val _configFlow = MutableStateFlow(loadConfig())
     val configFlow: StateFlow<AgnesApiConfig> = _configFlow.asStateFlow()
 
@@ -36,6 +83,27 @@ class AgnesRepository(
     val allProjects: Flow<List<GenerationProject>> = database.projectDao().getAllProjects()
     val chatMessages: Flow<List<ChatMessage>> = database.chatMessageDao().getAllMessages()
     val rateLimitState: StateFlow<RateLimitState> = rateLimitManager.rateLimitState
+
+    /**
+     * Persist user edits to a storyboard scene's creative fields (title / visual prompt /
+     * camera movement / narration). Only the editable columns are touched so that a
+     * generation pass writing status columns concurrently is never overwritten.
+     */
+    suspend fun updateClipPrompt(
+        clipId: String,
+        title: String,
+        visualPrompt: String,
+        cameraMovement: String,
+        narration: String
+    ): Result<Unit> = runCatching {
+        database.sceneClipDao().updateClipPrompt(
+            clipId = clipId,
+            title = title.trim(),
+            visualPrompt = visualPrompt.trim(),
+            cameraMovement = cameraMovement.trim(),
+            narration = narration.trim()
+        )
+    }
 
     fun getClipsForProject(projectId: String): Flow<List<SceneClip>> {
         return database.sceneClipDao().getClipsForProject(projectId)
@@ -249,6 +317,9 @@ class AgnesRepository(
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
+        // Scene count is user-selectable from 1 to 20; clamp defensively so a bad caller
+        // can never enqueue an unbounded number of rate-limited video requests.
+        val requestedSceneCount = sceneCount.coerceIn(MIN_SCENE_COUNT, MAX_SCENE_COUNT)
         val projectId = UUID.randomUUID().toString()
         val project = GenerationProject(
             id = projectId,
@@ -256,13 +327,13 @@ class AgnesRepository(
             type = ProjectType.VIDEO_SCRIPT_AND_STITCH,
             prompt = themePrompt,
             sourceImageUri = sourceImageUri,
-            totalClips = sceneCount,
+            totalClips = requestedSceneCount,
             completedClips = 0,
             stylePreset = stylePreset,
             aspectRatio = aspectRatio,
             durationSeconds = durationPerScene * sceneCount,
             status = GenerationStatus.SCRIPTING,
-            statusMessage = "Dream AI 正在规划 $sceneCount 段电影分镜脚本 (模型: $effectiveModel)..."
+            statusMessage = "Dream AI 正在规划 $requestedSceneCount 段电影分镜脚本 (模型: $effectiveModel)..."
         )
         database.projectDao().insertProject(project)
 
@@ -271,7 +342,7 @@ class AgnesRepository(
         val scriptResult = agnesClient.generateVideoScript(
             config = _configFlow.value,
             themePrompt = themePrompt,
-            sceneCount = sceneCount,
+            sceneCount = requestedSceneCount,
             stylePreset = stylePreset
         )
 
@@ -287,7 +358,10 @@ class AgnesRepository(
 
         val script = scriptResult.getOrThrow()
         val styleBible = script.styleBible
-        val scenes = script.scenes.map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
+        // The model may return a different number of scenes than requested (or fall back to a
+        // curated template). Normalise to exactly the requested count, renumbering 1..N.
+        val scenes = normalizeScenes(script.scenes, requestedSceneCount, themePrompt, stylePreset)
+            .map { it.copy(projectId = projectId, durationSeconds = durationPerScene) }
         database.sceneClipDao().insertClips(scenes)
 
         // Deterministic per-project seed: keeps the render stable across re-runs of the same
@@ -420,6 +494,57 @@ class AgnesRepository(
             database.projectDao().updateProject(finishedProject)
             return Result.success(finishedProject)
         }
+    }
+
+    /**
+     * Normalise the planner output to exactly [targetCount] scenes, renumbered 1..N.
+     *
+     * - Too many scenes → keep the first [targetCount].
+     * - Too few scenes → top up with curated fallback beats so the user still gets the
+     *   number of clips they asked for (and never a crash from an empty list).
+     * - Every scene keeps its own prompt/narration but is guaranteed a non-blank title.
+     */
+    private fun normalizeScenes(
+        scenes: List<SceneClip>,
+        targetCount: Int,
+        themePrompt: String,
+        stylePreset: String
+    ): List<SceneClip> {
+        val safeTarget = targetCount.coerceIn(MIN_SCENE_COUNT, MAX_SCENE_COUNT)
+        val normalised = ArrayList<SceneClip>(safeTarget)
+
+        for (i in 0 until safeTarget) {
+            val existing = scenes.getOrNull(i)
+            if (existing != null) {
+                normalised.add(
+                    existing.copy(
+                        sceneNumber = i + 1,
+                        sceneTitle = existing.sceneTitle.ifBlank { "分镜 ${i + 1}" },
+                        cameraMovement = existing.cameraMovement.ifBlank { "Smooth Cinematic Pan" }
+                    )
+                )
+            } else {
+                val template = FALLBACK_SCENE_TEMPLATES[i % FALLBACK_SCENE_TEMPLATES.size]
+                val camera = when (i % 4) {
+                    0 -> "航拍远景下压 (Aerial Crane Down)"
+                    1 -> "动态侧向跟焦 (Tracking Shot)"
+                    2 -> "360度环绕升格 (360 Orbit Slow-Mo)"
+                    else -> "缓慢推近特写 (Dolly-In Close-Up)"
+                }
+                normalised.add(
+                    SceneClip(
+                        projectId = "",
+                        sceneNumber = i + 1,
+                        sceneTitle = template.first,
+                        visualPrompt = "${template.second}, style: $stylePreset, theme: $themePrompt, ultra photorealistic, 8k render, unreal engine 5 cinematics",
+                        cameraMovement = camera,
+                        narration = "第${i + 1}幕：${template.third}，故事在「$themePrompt」中徐徐展开。",
+                        durationSeconds = 10
+                    )
+                )
+            }
+        }
+        return normalised
     }
 
     /**
