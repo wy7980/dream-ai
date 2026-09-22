@@ -193,8 +193,17 @@ object VideoSceneLimits {
     const val MAX = 20
     const val DEFAULT = 1
 
-    /** Clamp an arbitrary caller-supplied scene count into the supported range. */
-    fun clamp(count: Int): Int = count.coerceIn(MIN, MAX)
+    /**
+     * Sentinel meaning "let the director model decide the scene count". Kept distinct from any
+     * real count so callers can tell "auto" apart from "the model happened to pick 1".
+     */
+    const val AUTO = 0
+
+    /**
+     * Clamp an arbitrary caller-supplied scene count into the supported range. `AUTO` (0) passes
+     * through untouched so the auto-planning path survives the defensive clamp.
+     */
+    fun clamp(count: Int): Int = if (count == AUTO) AUTO else count.coerceIn(MIN, MAX)
 }
 
 /**
@@ -207,6 +216,12 @@ object VideoDurationLimits {
     const val MAX = 12
     const val DEFAULT = 5
 
-    /** Clamp an arbitrary caller-supplied duration into the supported range. */
-    fun clamp(seconds: Int): Int = seconds.coerceIn(MIN, MAX)
+    /** Sentinel meaning "let the director model decide the per-scene duration". */
+    const val AUTO = 0
+
+    /**
+     * Clamp an arbitrary caller-supplied duration into the supported range. `AUTO` (0) passes
+     * through untouched so the auto-planning path survives the defensive clamp.
+     */
+    fun clamp(seconds: Int): Int = if (seconds == AUTO) AUTO else seconds.coerceIn(MIN, MAX)
 }

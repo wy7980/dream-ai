@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.Button
@@ -45,6 +46,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -119,6 +122,9 @@ fun VideoPipelineScreen(
     var selectedRatio by remember { mutableStateOf("16:9") }
     var sceneDuration by remember { mutableIntStateOf(VideoDurationLimits.DEFAULT) }
     var sceneCount by remember { mutableIntStateOf(VideoSceneLimits.DEFAULT) }
+    // When true the director model sizes the film (scene count + per-scene duration) from the
+    // material instead of the user guessing. Sliders are disabled and shown as "AI 规划".
+    var autoPlan by remember { mutableStateOf(true) }
     var selectedStyle by remember { mutableStateOf("Cinematic 3D") }
     var showImagePicker by remember { mutableStateOf(false) }
     var showHistoryDrawer by remember { mutableStateOf(false) }
@@ -409,15 +415,19 @@ fun VideoPipelineScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "$sceneCount 幕",
+                                    text = if (autoPlan) "AI 自动规划" else "$sceneCount 幕",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = AgnesCyan
+                                    color = if (autoPlan) AgnesViolet else AgnesCyan
                                 )
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "可选 ${VideoSceneLimits.MIN}-${VideoSceneLimits.MAX} 幕 (每幕 1 次限速请求)",
+                                text = if (autoPlan) {
+                                    "由 AI 按素材自然单元分幕（每幕 1 次限速请求）"
+                                } else {
+                                    "可选 ${VideoSceneLimits.MIN}-${VideoSceneLimits.MAX} 幕 (每幕 1 次限速请求)"
+                                },
                                 fontSize = 9.sp,
                                 color = AppTextSecondary
                             )
@@ -426,11 +436,11 @@ fun VideoPipelineScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Scene count slider (1..20). Default is 1 so a first run is fast and cheap;
-                    // each extra scene adds one rate-limited video request to the pipeline.
+                    // Scene count slider (1..20). Disabled while AI auto-planning is on.
                     Slider(
                         value = sceneCount.toFloat(),
                         onValueChange = { sceneCount = it.roundToInt().coerceIn(VideoSceneLimits.MIN, VideoSceneLimits.MAX) },
+                        enabled = !autoPlan,
                         valueRange = VideoSceneLimits.MIN.toFloat()..VideoSceneLimits.MAX.toFloat(),
                         steps = VideoSceneLimits.MAX - VideoSceneLimits.MIN - 1,
                         modifier = Modifier
@@ -445,8 +455,7 @@ fun VideoPipelineScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Per-scene duration (4..12s). Total film length = sceneCount * sceneDuration,
-                    // so the live summary below makes the cost of both sliders obvious.
+                    // Per-scene duration (4..12s). Disabled while AI auto-planning is on.
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -459,7 +468,7 @@ fun VideoPipelineScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "$sceneDuration 秒",
+                            text = if (autoPlan) "AI 按旁白长度" else "$sceneDuration 秒",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = AgnesViolet
@@ -469,6 +478,7 @@ fun VideoPipelineScreen(
                     Slider(
                         value = sceneDuration.toFloat(),
                         onValueChange = { sceneDuration = it.roundToInt().coerceIn(VideoDurationLimits.MIN, VideoDurationLimits.MAX) },
+                        enabled = !autoPlan,
                         valueRange = VideoDurationLimits.MIN.toFloat()..VideoDurationLimits.MAX.toFloat(),
                         steps = VideoDurationLimits.MAX - VideoDurationLimits.MIN - 1,
                         modifier = Modifier
@@ -482,10 +492,65 @@ fun VideoPipelineScreen(
                     )
 
                     Text(
-                        text = "可选 ${VideoDurationLimits.MIN}-${VideoDurationLimits.MAX} 秒/幕 · 成片总时长约 ${sceneCount * sceneDuration} 秒",
+                        text = if (autoPlan) {
+                            "AI 将根据素材自动决定幕数与每幕时长，确保内容不遗漏"
+                        } else {
+                            "可选 ${VideoDurationLimits.MIN}-${VideoDurationLimits.MAX} 秒/幕 · 成片总时长约 ${sceneCount * sceneDuration} 秒"
+                        },
                         fontSize = 9.sp,
                         color = AppTextSecondary
                     )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Auto-plan toggle: on by default. Turning it off hands the two sliders back to
+                    // the user for precise control (and pins both numbers for the whole pipeline).
+                    Surface(
+                        onClick = { autoPlan = !autoPlan },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (autoPlan) AgnesViolet.copy(alpha = 0.14f) else AppSubtleBg,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (autoPlan) AgnesViolet else AppCardBorder
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("auto_plan_toggle")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (autoPlan) Icons.Default.AutoAwesome else Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = if (autoPlan) AgnesViolet else AppTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "AI 自动规划时长与分镜数",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppTextPrimary
+                                )
+                                Text(
+                                    text = if (autoPlan) "已开启 · 按素材自然单元分幕，内容不遗漏" else "已关闭 · 使用上方滑块手动指定",
+                                    fontSize = 9.sp,
+                                    color = AppTextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = autoPlan,
+                                onCheckedChange = { autoPlan = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AgnesViolet,
+                                    checkedTrackColor = AgnesViolet.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -527,11 +592,11 @@ fun VideoPipelineScreen(
                                 viewModel.startVideoPipeline(
                                     themePrompt = themePrompt,
                                     sourceImageUri = sourceImageUri,
-                                    sceneCount = sceneCount,
+                                    sceneCount = if (autoPlan) VideoSceneLimits.AUTO else sceneCount,
                                     stylePreset = selectedStyle,
                                     videoModel = selectedModel,
                                     aspectRatio = selectedRatio,
-                                    durationPerScene = sceneDuration
+                                    durationPerScene = if (autoPlan) VideoDurationLimits.AUTO else sceneDuration
                                 )
                             },
                             modifier = Modifier
@@ -552,7 +617,7 @@ fun VideoPipelineScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "一键开启：规划分镜 ➔ 生成多段视频 ➔ 拼接长视频",
+                                    text = if (autoPlan) "一键开启：AI 规划分镜 ➔ 生成多段视频 ➔ 拼接长视频" else "一键开启：规划分镜 ➔ 生成多段视频 ➔ 拼接长视频",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF0F172A)

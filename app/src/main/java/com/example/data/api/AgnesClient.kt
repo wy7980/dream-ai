@@ -27,6 +27,7 @@ import com.example.data.model.SceneClip
 import com.example.data.model.TavilySearchResponse
 import com.example.data.model.TavilySearchResultItem
 import com.example.data.model.VideoSceneLimits
+import com.example.data.model.VideoDurationLimits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -55,7 +56,17 @@ data class VideoClipResult(
  */
 data class VideoScript(
     val scenes: List<SceneClip>,
-    val styleBible: String? = null
+    val styleBible: String? = null,
+    /**
+     * Scene count the director model recommends for this material. Equal to `scenes.size` when the
+     * model planned freely; when the caller pinned a count it echoes that count back.
+     */
+    val recommendedSceneCount: Int = scenes.size,
+    /**
+     * Per-scene duration (seconds) the director model recommends. Only meaningful on the auto path;
+     * null when the model did not express a preference (caller keeps its own default).
+     */
+    val recommendedDurationPerScene: Int? = null
 )
 
 class AgnesClient(
@@ -488,14 +499,22 @@ class AgnesClient(
 
     /**
      * Step 1: AI Video Script Planning
-     * Deconstructs image & story concept into 3-5 cinematic sequential scene scripts
+     *
+     * Deconstructs an idea/image into a cinematic sequential storyboard. Two modes:
+     * - Pinned: `sceneCount` in [1,20] and `durationPerScene` in [4,12] are obeyed exactly.
+     * - Auto: pass [VideoSceneLimits.AUTO] / [VideoDurationLimits.AUTO] and the director model
+     *   decides both from the material (e.g. a 4-line Tang poem -> 4 shots, one line each), so the
+     *   content-coverage rule can be satisfied without the user guessing the numbers.
      */
     suspend fun generateVideoScript(
         config: AgnesApiConfig,
         themePrompt: String,
         sceneCount: Int = VideoSceneLimits.DEFAULT,
-        stylePreset: String = "Cinematic 3D"
+        stylePreset: String = "Cinematic 3D",
+        durationPerScene: Int = VideoDurationLimits.DEFAULT
     ): Result<VideoScript> = withContext(Dispatchers.IO) {
+        val autoSceneCount = sceneCount == VideoSceneLimits.AUTO
+        val autoDuration = durationPerScene == VideoDurationLimits.AUTO
         val effectiveSceneCount = VideoSceneLimits.clamp(sceneCount)
         rateLimitManager.executeRateLimited("Agnes 分镜脚本智能规划") {
             try {
@@ -503,8 +522,21 @@ class AgnesClient(
                 if (provider.apiKey.isNotBlank()) {
                     val base = provider.endpointUrl.trim().removeSuffix("/")
                     val endpoint = if (base.endsWith("/v1")) "$base/chat/completions" else "$base/v1/chat/completions"
+
+                    val sceneCountRule = if (autoSceneCount) {
+                        "SCENE COUNT (AUTO): You decide how many scenes this material needs. Count the material's natural units first (a 4-line Tang poem -> 4 shots, one line each; a 3-act story -> 3-5 shots), then emit exactly that many. Keep it within 1..${VideoSceneLimits.MAX}. Prefer one scene per natural unit so nothing is crammed together."
+                    } else {
+                        "SCENE COUNT (FIXED): Emit exactly $effectiveSceneCount scenes."
+                    }
+
+                    val durationRule = if (autoDuration) {
+                        "PER-SCENE DURATION (AUTO): You decide each scene's durationSeconds within ${VideoDurationLimits.MIN}..${VideoDurationLimits.MAX}. Set a value that fits that scene's narration length at a natural pace (a short line ~${VideoDurationLimits.MIN}s, a long descriptive line up to ${VideoDurationLimits.MAX}s). Also fill `recommendedDurationPerScene` with ONE integer you recommend applying uniformly across all scenes."
+                    } else {
+                        "PER-SCENE DURATION (FIXED): Set durationSeconds = $durationPerScene on every scene and `recommendedDurationPerScene` = $durationPerScene."
+                    }
+
                     val systemPrompt = """
-                        You are Dream AI Film Director（Dream AI 电影导演）. Create a $effectiveSceneCount-scene video storyboard script based on the user's idea and style: $stylePreset.
+                        You are Dream AI Film Director（Dream AI 电影导演）. Create a video storyboard script based on the user's idea and style: $stylePreset.
 
                         LANGUAGE RULE (MANDATORY):
                         - EVERY text field you output MUST be in Simplified Chinese (简体中文): styleBible values, sceneTitle, visualPrompt, cameraMovement, narration.
@@ -514,8 +546,11 @@ class AgnesClient(
                         - FIRST enumerate every distinct element of the user's material as a private checklist: every sentence / line / verse / beat / key detail.
                         - Every element MUST be covered by some scene's narration AND visualized in that scene. Nothing may be dropped, merged away, or paraphrased out of existence.
                         - For quoted material (e.g. a Tang poem 唐诗), each original line MUST appear VERBATIM in the narration of the scene that shows it.
-                        - If $effectiveSceneCount is fewer than the number of elements, one scene may carry MULTIPLE elements (and multiple verbatim lines) — the union of all scenes MUST still cover 100% of the elements.
-                        - If $effectiveSceneCount is greater than the number of elements, expand with establishing / transition / closing shots, WITHOUT inventing content that contradicts the source.
+                        - The union of all scenes MUST cover 100% of the elements. Never drop a line to save scenes.
+
+                        $sceneCountRule
+
+                        $durationRule
 
                         FIRST, define a single GLOBAL "styleBible" (中文) that every scene MUST obey so the clips look like one continuous film:
                         - 主角：确切外貌（年龄、发型、面容、服装、关键道具）——所有分镜保持完全一致
@@ -525,10 +560,11 @@ class AgnesClient(
                         - 镜头语言：一致的焦段/构图风格与运镜语法
                         - 连续性说明：每一幕如何从上、一幕结尾自然承接（为无缝拼接服务）
 
-                        Then create the $effectiveSceneCount scenes. Each scene's visualPrompt MUST re-state the 主角 / 环境 / 光照 / 调色 so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
+                        Then create the scenes. Each scene's visualPrompt MUST re-state the 主角 / 环境 / 光照 / 调色 so the renderer stays consistent, and each scene (except the first) MUST visually continue from where the previous scene ended.
 
                         Return strict JSON, no markdown:
                         {
+                          "recommendedDurationPerScene": 5,
                           "styleBible": {
                             "protagonist": "...",
                             "environment": "...",
@@ -544,7 +580,7 @@ class AgnesClient(
                               "visualPrompt": "中文画面提示词，复述主角与环境、光照、调色",
                               "cameraMovement": "中文运镜，如：缓慢推近 / 航拍飞越 / 左到右横摇 / 360度环绕",
                               "narration": "中文旁白或对白；若该幕呈现原文（如诗句），必须逐字照录原文",
-                              "durationSeconds": 10
+                              "durationSeconds": 5
                             }
                           ]
                         }
@@ -585,10 +621,26 @@ class AgnesClient(
 
                         val parsedScenes = parseScriptJson(content)
                         if (parsedScenes.isNotEmpty()) {
+                            val modelDuration = parseRecommendedDuration(content)
+                            val scenes = if (autoDuration) {
+                                // Auto duration: let each scene keep its own model-chosen length, but
+                                // fall back to the uniform recommendation / default when it is missing
+                                // or out of contract.
+                                val uniform = modelDuration ?: VideoDurationLimits.DEFAULT
+                                parsedScenes.map { scene ->
+                                    val perScene = scene.durationSeconds
+                                    val resolved = if (perScene in VideoDurationLimits.MIN..VideoDurationLimits.MAX) perScene else uniform
+                                    scene.copy(durationSeconds = resolved)
+                                }
+                            } else {
+                                parsedScenes.map { it.copy(durationSeconds = durationPerScene) }
+                            }
                             return@executeRateLimited Result.success(
                                 VideoScript(
-                                    scenes = parsedScenes,
-                                    styleBible = parseStyleBible(content)
+                                    scenes = scenes,
+                                    styleBible = parseStyleBible(content),
+                                    recommendedSceneCount = scenes.size,
+                                    recommendedDurationPerScene = modelDuration ?: if (autoDuration) null else durationPerScene
                                 )
                             )
                         }
@@ -597,10 +649,19 @@ class AgnesClient(
 
                 // Fallback smart script generator
                 delay(1500L)
-                val scenes = createCuratedStoryboard(themePrompt, effectiveSceneCount, stylePreset)
-                Result.success(VideoScript(scenes = scenes, styleBible = null))
+                val fallbackCount = if (autoSceneCount) inferSceneCountFromMaterial(themePrompt) else effectiveSceneCount
+                val scenes = createCuratedStoryboard(themePrompt, fallbackCount, stylePreset)
+                Result.success(
+                    VideoScript(
+                        scenes = scenes,
+                        styleBible = null,
+                        recommendedSceneCount = scenes.size,
+                        recommendedDurationPerScene = if (autoDuration) VideoDurationLimits.DEFAULT else durationPerScene
+                    )
+                )
             } catch (e: Exception) {
-                val scenes = createCuratedStoryboard(themePrompt, effectiveSceneCount, stylePreset)
+                val fallbackCount = if (autoSceneCount) inferSceneCountFromMaterial(themePrompt) else effectiveSceneCount
+                val scenes = createCuratedStoryboard(themePrompt, fallbackCount, stylePreset)
                 Result.success(VideoScript(scenes = scenes, styleBible = null))
             }
         }
@@ -1829,6 +1890,43 @@ class AgnesClient(
             bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
         }
         return file
+    }
+
+    /**
+     * Read the director model's uniform per-scene duration recommendation, clamped to the supported
+     * window. Returns null when absent / unparsable so the caller keeps its own default.
+     */
+    private fun parseRecommendedDuration(jsonString: String): Int? {
+        return try {
+            val cleanJson = jsonString.substringAfter("{").substringBeforeLast("}")
+            val root = JSONObject("$cleanJson")
+            if (!root.has("recommendedDurationPerScene")) return null
+            val raw = root.optInt("recommendedDurationPerScene", -1)
+            if (raw <= 0) null else VideoDurationLimits.clamp(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Offline fallback for the auto-scene-count path: when the director model is unreachable, infer a
+     * sensible scene count straight from the material so we still honour "one scene per natural
+     * unit" (e.g. a 4-line Tang poem -> 4 scenes) instead of dumping everything into one shot.
+     */
+    private fun inferSceneCountFromMaterial(material: String): Int {
+        val lines = material.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        // Chinese material is usually written without spaces, so count content-bearing lines first;
+        // fall back to sentence-ending punctuation when the whole thing arrives on one line.
+        val units = if (lines.size > 1) {
+            lines.size
+        } else {
+            material.split('。', '！', '？', '；', '\n', '，')
+                .map { it.trim() }
+                .count { it.isNotBlank() }
+        }
+        return VideoSceneLimits.clamp(units.coerceAtLeast(VideoSceneLimits.MIN))
     }
 
     private fun parseScriptJson(jsonString: String): List<SceneClip> {

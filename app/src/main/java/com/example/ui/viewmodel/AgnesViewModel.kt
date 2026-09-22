@@ -17,6 +17,7 @@ import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
 import com.example.data.model.VideoDurationLimits
+import com.example.data.model.VideoSceneLimits
 import com.example.data.repository.AgnesRepository
 import com.example.data.skill.AgentDecision
 import com.example.data.skill.AgentDecisionEngine
@@ -370,13 +371,19 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Defensive clamp: the UI only offers 1..20, but the agent/skill path may call in
-        // directly, and each scene costs one rate-limited video request.
-        val safeSceneCount = sceneCount.coerceIn(
-            AgnesRepository.MIN_SCENE_COUNT,
-            AgnesRepository.MAX_SCENE_COUNT
-        )
+        // directly, and each scene costs one rate-limited video request. AUTO (0) passes through
+        // so the director model can still decide the count.
+        val safeSceneCount = if (sceneCount == VideoSceneLimits.AUTO) {
+            VideoSceneLimits.AUTO
+        } else {
+            sceneCount.coerceIn(AgnesRepository.MIN_SCENE_COUNT, AgnesRepository.MAX_SCENE_COUNT)
+        }
         // Same defensive clamp for the per-scene duration (API contract: 4..12s).
-        val safeDurationPerScene = VideoDurationLimits.clamp(durationPerScene)
+        val safeDurationPerScene = if (durationPerScene == VideoDurationLimits.AUTO) {
+            VideoDurationLimits.AUTO
+        } else {
+            VideoDurationLimits.clamp(durationPerScene)
+        }
 
         videoJob?.cancel()
         videoJob = viewModelScope.launch {
