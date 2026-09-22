@@ -4,6 +4,7 @@ import com.example.data.api.AgnesClient
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatIntentMode
 import com.example.data.model.ChatMessage
+import com.example.data.model.VideoDurationLimits
 import org.json.JSONObject
 
 sealed class AgentDecision {
@@ -77,7 +78,7 @@ class AgentDecisionEngine(
                         "sourceImageUri" to attachedImageUri,
                         "model" to detectedModel,
                         "aspectRatio" to detectedRatio,
-                        "duration" to 5,
+                        "duration" to detectDuration(lower),
                         "sceneCount" to 4,
                         "stylePreset" to "Cinematic 3D"
                     ),
@@ -251,7 +252,7 @@ class AgentDecisionEngine(
                     "sourceImageUri" to attachedImageUri,
                     "model" to detectedModel,
                     "aspectRatio" to detectedRatio,
-                    "duration" to 5,
+                    "duration" to detectDuration(lower),
                     "sceneCount" to 4,
                     "stylePreset" to "Cinematic 3D"
                 ),
@@ -329,6 +330,23 @@ class AgentDecisionEngine(
                 lower.contains("word") || lower.contains("pdf") ||
                 lower.contains("excel") || lower.contains("表格") ||
                 lower.contains("报告") || lower.contains("润色") || lower.contains("分镜")
+    }
+
+    /**
+     * Extract a per-scene duration (seconds) from the user's natural-language request, e.g.
+     * "每段10秒", "10s", "每个分镜8秒". Falls back to [VideoDurationLimits.DEFAULT] and is
+     * always clamped into the API's supported 4..12s window.
+     */
+    private fun detectDuration(lowerPrompt: String): Int {
+        val patterns = listOf(
+            Regex("(\\d+)\\s*(?:秒|s)\\s*(?:一段|每段|每个|每幕|/段|/幕|一段)?"),
+            Regex("(?:时长|每段|每幕|单段|每个分镜)\\s*(\\d+)")
+        )
+        for (p in patterns) {
+            val value = p.find(lowerPrompt)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            if (value != null) return VideoDurationLimits.clamp(value)
+        }
+        return VideoDurationLimits.DEFAULT
     }
 
     private data class ParsedToolCall(val skillId: String, val arguments: Map<String, Any?>)

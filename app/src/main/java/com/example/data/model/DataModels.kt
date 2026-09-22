@@ -186,3 +186,17 @@ object VideoSceneLimits {
     /** Clamp an arbitrary caller-supplied scene count into the supported range. */
     fun clamp(count: Int): Int = count.coerceIn(MIN, MAX)
 }
+
+/**
+ * Per-scene video duration bounds. The Agnes 2.5 video models accept `seconds`
+ * from "4" to "12"; keeping the UI and every caller inside this window avoids
+ * silent server-side clamping (and the confusing "I asked for 3s but got 4s" case).
+ */
+object VideoDurationLimits {
+    const val MIN = 4
+    const val MAX = 12
+    const val DEFAULT = 5
+
+    /** Clamp an arbitrary caller-supplied duration into the supported range. */
+    fun clamp(seconds: Int): Int = seconds.coerceIn(MIN, MAX)
+}

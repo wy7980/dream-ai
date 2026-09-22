@@ -15,6 +15,7 @@ import com.example.data.model.GenerationProject
 import com.example.data.model.ProjectType
 import com.example.data.model.RateLimitState
 import com.example.data.model.SceneClip
+import com.example.data.model.VideoDurationLimits
 import com.example.data.repository.AgnesRepository
 import com.example.data.skill.AgentDecision
 import com.example.data.skill.AgentDecisionEngine
@@ -313,7 +314,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         stylePreset: String = "Cinematic 3D",
         videoModel: String? = null,
         aspectRatio: String = "16:9",
-        durationPerScene: Int = 5,
+        durationPerScene: Int = VideoDurationLimits.DEFAULT,
         onSuccess: (GenerationProject) -> Unit = {}
     ) {
         if (themePrompt.isBlank() && sourceImageUri == null) {
@@ -327,6 +328,8 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             AgnesRepository.MIN_SCENE_COUNT,
             AgnesRepository.MAX_SCENE_COUNT
         )
+        // Same defensive clamp for the per-scene duration (API contract: 4..12s).
+        val safeDurationPerScene = VideoDurationLimits.clamp(durationPerScene)
 
         videoJob?.cancel()
         videoJob = viewModelScope.launch {
@@ -341,7 +344,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                     stylePreset = stylePreset,
                     videoModel = videoModel,
                     aspectRatio = aspectRatio,
-                    durationPerScene = durationPerScene,
+                    durationPerScene = safeDurationPerScene,
                     onProgress = { msg ->
                         _videoProgressMessage.value = msg
                     }
