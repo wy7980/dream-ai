@@ -65,6 +65,16 @@ android {
     }
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
+  // ffmpeg-kit ships ~13-16MB of native code per ABI; without splits every ABI is bundled
+  // into one ~120MB APK. Split by ABI so each device downloads only its own architecture.
+  splits {
+    abi {
+      isEnable = true
+      reset()
+      include("arm64-v8a", "armeabi-v7a")
+      isUniversalApk = true
+    }
+  }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
@@ -119,6 +129,7 @@ dependencies {
   implementation(libs.coil.video)
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.ui)
+  implementation(libs.ffmpeg.kit.video)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
