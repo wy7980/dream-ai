@@ -75,6 +75,20 @@ interface SceneClipDao {
     @Update
     suspend fun updateClip(clip: SceneClip)
 
+    /**
+     * Update only the editable creative fields of a clip. Used when the user tweaks a
+     * storyboard prompt / narration / camera move before (or after) rendering, so that a
+     * concurrent generation pass writing status fields cannot be clobbered.
+     */
+    @Query("UPDATE scene_clips SET sceneTitle = :title, visualPrompt = :visualPrompt, cameraMovement = :cameraMovement, narration = :narration WHERE id = :clipId")
+    suspend fun updateClipPrompt(
+        clipId: String,
+        title: String,
+        visualPrompt: String,
+        cameraMovement: String,
+        narration: String
+    )
+
     @Query("DELETE FROM scene_clips WHERE projectId = :projectId")
     suspend fun deleteClipsForProject(projectId: String)
 }

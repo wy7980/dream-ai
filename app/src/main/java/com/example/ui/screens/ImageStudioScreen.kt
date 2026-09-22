@@ -67,6 +67,8 @@ import com.example.data.model.GenerationProject
 import com.example.data.model.ProjectType
 import com.example.ui.components.ImagePickerBottomSheet
 import com.example.ui.components.RateLimitBanner
+import com.example.ui.components.StudioHistoryDrawer
+import com.example.ui.components.StudioTopBar
 import com.example.ui.theme.AgnesCyan
 import com.example.ui.theme.AgnesEmerald
 import com.example.ui.theme.AgnesViolet
@@ -103,6 +105,7 @@ fun ImageStudioScreen(
     val isGenerating by viewModel.isGenerating.collectAsState()
     val progressMessage by viewModel.progressMessage.collectAsState()
     val selectedProject by viewModel.selectedProject.collectAsState()
+    val projects by viewModel.projects.collectAsState()
 
     var promptText by remember { mutableStateOf("夜幕中霓虹闪烁的未来都市，光子悬浮飞车穿梭其中，雨夜地面光影倒影，8k超清") }
     var selectedImageUri by remember { mutableStateOf<String?>(null) }
@@ -110,19 +113,36 @@ fun ImageStudioScreen(
     var selectedRatio by remember { mutableStateOf("16:9") }
     var comparisonSplit by remember { mutableFloatStateOf(0.5f) }
     var showImagePicker by remember { mutableStateOf(false) }
+    var showHistoryDrawer by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val lastImageProject = if (selectedProject?.type == ProjectType.IMAGE_TO_IMAGE) selectedProject else null
+    val imageHistoryCount = projects.count { it.type == ProjectType.IMAGE_TO_IMAGE }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(AppBackground)
+            .testTag("image_studio_screen")
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Minimalist native top bar: history lives in a drawer, not on the workspace screen.
+            StudioTopBar(
+                title = "AI 图像重绘变奏",
+                subtitle = "图生图算法与多风格重塑",
+                icon = Icons.Default.Palette,
+                gradient = listOf(AgnesViolet, Color(0xFFEC4899)),
+                onOpenHistory = { showHistoryDrawer = true },
+                historyBadgeCount = imageHistoryCount
+            )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
             .verticalScroll(scrollState)
             .padding(12.dp)
-            .testTag("image_studio_screen")
     ) {
         // Rate Limit Monitor
         RateLimitBanner(rateLimitState = rateLimitState)
@@ -602,6 +622,29 @@ fun ImageStudioScreen(
                     promptText = prompt
                 }
             }
+        )
+    }
+        }
+
+        // Studio history drawer: only image projects, so history is no longer dumped inline.
+        StudioHistoryDrawer(
+            visible = showHistoryDrawer,
+            title = "图像重绘历史",
+            projects = projects,
+            filterType = ProjectType.IMAGE_TO_IMAGE,
+            selectedProjectId = selectedProject?.id,
+            onDismiss = { showHistoryDrawer = false },
+            onSelectProject = { project ->
+                viewModel.selectProject(project)
+                showHistoryDrawer = false
+            },
+            onNewSession = {
+                showHistoryDrawer = false
+                viewModel.selectProject(null)
+                selectedImageUri = null
+                promptText = ""
+            },
+            onDeleteProject = { project -> viewModel.deleteProject(project) }
         )
     }
 }

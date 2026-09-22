@@ -302,7 +302,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     fun startVideoPipeline(
         themePrompt: String,
         sourceImageUri: String?,
-        sceneCount: Int = 4,
+        sceneCount: Int = 1,
         stylePreset: String = "Cinematic 3D",
         videoModel: String? = null,
         aspectRatio: String = "16:9",
@@ -314,6 +314,13 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // Defensive clamp: the UI only offers 1..20, but the agent/skill path may call in
+        // directly, and each scene costs one rate-limited video request.
+        val safeSceneCount = sceneCount.coerceIn(
+            AgnesRepository.MIN_SCENE_COUNT,
+            AgnesRepository.MAX_SCENE_COUNT
+        )
+
         videoJob?.cancel()
         videoJob = viewModelScope.launch {
             try {
@@ -323,7 +330,7 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                 val result = repository.startFullVideoPipeline(
                     themePrompt = themePrompt,
                     sourceImageUri = sourceImageUri,
-                    sceneCount = sceneCount,
+                    sceneCount = safeSceneCount,
                     stylePreset = stylePreset,
                     videoModel = videoModel,
                     aspectRatio = aspectRatio,
@@ -344,6 +351,47 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _isVideoGenerating.value = false
                 _videoProgressMessage.value = ""
+            }
+        }
+    }
+
+    /**
+     * Persist user edits to a storyboard scene's creative fields. This is a lightweight
+     * write that never re-renders the clip: the user can fix a prompt first and then hit
+     * "重跑本分镜" to regenerate with the corrected text.
+     */
+    fun updateScenePrompt(
+        clipId: String,
+        title: String,
+        visualPrompt: String,
+        cameraMovement: String,
+        narration: String,
+        onComplete: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        if (clipId.isBlank()) {
+            onComplete(false, "分镜不存在")
+            return
+        }
+        if (visualPrompt.isBlank()) {
+            _toastMessage.value = "分镜提示词不能为空"
+            onComplete(false, "分镜提示词不能为空")
+            return
+        }
+        viewModelScope.launch {
+            val result = repository.updateClipPrompt(
+                clipId = clipId,
+                title = title,
+                visualPrompt = visualPrompt,
+                cameraMovement = cameraMovement,
+                narration = narration
+            )
+            if (result.isSuccess) {
+                _toastMessage.value = "分镜脚本已保存"
+                onComplete(true, "已保存")
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "未知错误"
+                _toastMessage.value = "分镜脚本保存失败: $err"
+                onComplete(false, err)
             }
         }
     }

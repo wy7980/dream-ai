@@ -18,16 +18,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import java.io.File
 import com.example.data.model.GenerationStatus
@@ -50,6 +62,7 @@ import com.example.ui.theme.AgnesRose
 import com.example.ui.theme.AgnesViolet
 import com.example.ui.theme.AppCardBg
 import com.example.ui.theme.AppCardBorder
+import com.example.ui.theme.AppInputBg
 import com.example.ui.theme.AppSubtleBg
 import com.example.ui.theme.AppTextPrimary
 import com.example.ui.theme.AppTextSecondary
@@ -60,8 +73,10 @@ fun SceneCard(
     onClick: () -> Unit = {},
     isRerunning: Boolean = false,
     onRerun: (() -> Unit)? = null,
+    onSavePrompt: ((title: String, visualPrompt: String, cameraMovement: String, narration: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var showEditDialog by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         modifier = modifier
@@ -337,15 +352,49 @@ fun SceneCard(
                 }
             }
 
-            // Single-scene re-run action. Available for BOTH completed and failed clips
-            // (disabled only while this very clip is actively generating).
-            if (onRerun != null) {
+            // Per-scene actions: edit the storyboard script, and re-run just this clip.
+            // Editing is always available (even while rendering); re-run is disabled only
+            // while this very clip is actively generating.
+            if (onRerun != null || onSavePrompt != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (onSavePrompt != null) {
+                        Surface(
+                            onClick = { showEditDialog = true },
+                            shape = RoundedCornerShape(8.dp),
+                            color = AgnesViolet.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AgnesViolet.copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("edit_scene_${clip.sceneNumber}")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = AgnesVioletLight,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "编辑提示词",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AgnesVioletLight
+                                )
+                            }
+                        }
+                        if (onRerun != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                    }
+
+                    if (onRerun != null) {
                     val isGenerating = clip.status == GenerationStatus.GENERATING_CLIPS
                     val enabled = !isRerunning && !isGenerating
                     val tint = when {
@@ -388,8 +437,158 @@ fun SceneCard(
                             )
                         }
                     }
+                    }
                 }
             }
         }
+    }
+
+    if (showEditDialog && onSavePrompt != null) {
+        ScenePromptEditDialog(
+            clip = clip,
+            onDismiss = { showEditDialog = false },
+            onSave = { title, visualPrompt, cameraMovement, narration ->
+                onSavePrompt(title, visualPrompt, cameraMovement, narration)
+                showEditDialog = false
+            }
+        )
+    }
+}
+
+/**
+ * Edit dialog for a single storyboard scene. Lets the user fix the visual prompt (and the
+ * auxiliary title / camera movement / narration) before re-rendering the clip.
+ */
+@Composable
+private fun ScenePromptEditDialog(
+    clip: SceneClip,
+    onDismiss: () -> Unit,
+    onSave: (title: String, visualPrompt: String, cameraMovement: String, narration: String) -> Unit
+) {
+    var title by remember { mutableStateOf(clip.sceneTitle) }
+    var visualPrompt by remember { mutableStateOf(clip.visualPrompt) }
+    var cameraMovement by remember { mutableStateOf(clip.cameraMovement) }
+    var narration by remember { mutableStateOf(clip.narration) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, AgnesViolet.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                .testTag("scene_prompt_edit_dialog"),
+            color = AppCardBg,
+            tonalElevation = 6.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .background(AgnesViolet, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "分镜 0${clip.sceneNumber}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "编辑分镜脚本",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppTextPrimary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "修改后点击保存；如需重新生成画面，请再点「重跑本分镜」。",
+                    fontSize = 10.sp,
+                    color = AppTextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                EditField(label = "标题", value = title, onValueChange = { title = it }, minLines = 1, maxLines = 2, tag = "edit_scene_title")
+                Spacer(modifier = Modifier.height(10.dp))
+                EditField(label = "画面提示词 (Visual Prompt)", value = visualPrompt, onValueChange = { visualPrompt = it }, minLines = 4, maxLines = 8, tag = "edit_scene_prompt")
+                Spacer(modifier = Modifier.height(10.dp))
+                EditField(label = "运镜方式 (Camera Movement)", value = cameraMovement, onValueChange = { cameraMovement = it }, minLines = 1, maxLines = 2, tag = "edit_scene_camera")
+                Spacer(modifier = Modifier.height(10.dp))
+                EditField(label = "旁白 / 台词 (Narration)", value = narration, onValueChange = { narration = it }, minLines = 2, maxLines = 4, tag = "edit_scene_narration")
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消", color = AppTextSecondary, fontSize = 13.sp)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onSave(title, visualPrompt, cameraMovement, narration) },
+                        enabled = visualPrompt.isNotBlank(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AgnesViolet),
+                        modifier = Modifier.testTag("save_scene_prompt_button")
+                    ) {
+                        Text("保存脚本", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    minLines: Int,
+    maxLines: Int,
+    tag: String
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = AgnesCyan
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(tag),
+            minLines = minLines,
+            maxLines = maxLines,
+            shape = RoundedCornerShape(8.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = AgnesCyan,
+                unfocusedBorderColor = AppCardBorder,
+                focusedContainerColor = AppInputBg,
+                unfocusedContainerColor = AppInputBg,
+                focusedTextColor = AppTextPrimary,
+                unfocusedTextColor = AppTextPrimary
+            )
+        )
     }
 }

@@ -172,3 +172,17 @@ data class RateLimitState(
     val pendingQueueCount: Int = 0,
     val currentExecutingTask: String? = null
 )
+
+/**
+ * Shared bounds for the storyboard scene count. Each scene costs one rate-limited video
+ * request, so the range is intentionally bounded and enforced at every layer (UI, view
+ * model, repository and API client).
+ */
+object VideoSceneLimits {
+    const val MIN = 1
+    const val MAX = 20
+    const val DEFAULT = 1
+
+    /** Clamp an arbitrary caller-supplied scene count into the supported range. */
+    fun clamp(count: Int): Int = count.coerceIn(MIN, MAX)
+}
