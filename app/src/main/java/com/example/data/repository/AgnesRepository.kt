@@ -334,6 +334,12 @@ class AgnesRepository(
         durationPerScene: Int = VideoDurationLimits.AUTO,
         sessionId: String? = null,
         reuseProjectId: String? = null,
+        /**
+         * When false, an existing project's style anchor (定妆图) is preserved instead of being
+         * regenerated. Set false for a script-only re-plan so the user does not spend an extra
+         * image request and does not lose a style anchor they were happy with.
+         */
+        regenerateStyleReference: Boolean = true,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
@@ -435,17 +441,28 @@ class AgnesRepository(
         // Style anchor (定妆图): render ONE key-art in the locked medium so every later scene can be
         // generated in `reference` mode against it. Best-effort — a failure here must not block the
         // plan; the pipeline then degrades to text/keyframe style locking. Costs one image request.
-        onProgress("正在生成全片风格定妆图（画风与主角基准）...")
-        val styleRefUrl = agnesClient.generateStyleReferenceImage(
-            config = _configFlow.value,
-            stylePreset = stylePreset,
-            styleBible = styleBible,
-            themePrompt = themePrompt,
-            aspectRatio = aspectRatio,
-            sourceImageUri = sourceImageUri
-        ).getOrNull()
-        if (styleRefUrl == null) {
-            Log.w("AgnesRepository", "定妆图生成失败，降级为文本/关键帧风格锁定")
+        //
+        // Preserved across a script-only re-plan (regenerateStyleReference=false): the anchor is
+        // about the FILM's look, not the individual beats, so a new storyboard must not discard it.
+        val preservedStyleRef = if (!regenerateStyleReference) {
+            database.projectDao().getProjectDirect(projectId)?.styleReferenceImageUrl
+        } else {
+            null
+        }
+        val styleRefUrl: String? = when {
+            preservedStyleRef != null -> preservedStyleRef
+            !regenerateStyleReference -> null
+            else -> {
+                onProgress("正在生成全片风格定妆图（画风与主角基准）...")
+                agnesClient.generateStyleReferenceImage(
+                    config = _configFlow.value,
+                    stylePreset = stylePreset,
+                    styleBible = styleBible,
+                    themePrompt = themePrompt,
+                    aspectRatio = aspectRatio,
+                    sourceImageUri = sourceImageUri
+                ).getOrNull().also { if (it == null) Log.w("AgnesRepository", "定妆图生成失败，降级为文本/关键帧风格锁定") }
+            }
         }
 
         // Park at AWAITING_REVIEW: phase 2 needs an explicit go-ahead before spending requests.
