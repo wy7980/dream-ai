@@ -389,7 +389,7 @@ fun SettingsMainView(
             iconTint = AgnesAmber,
             iconBg = AgnesAmber.copy(alpha = 0.15f),
             title = "生图 & 视频限速与拼接设置",
-            subtitle = "配置 60s 安全冷却保护周期与多段视频全自动合成开关",
+            subtitle = "各通道（生图 / 生视频 / 脚本）独立计时，各自按此冷却周期限速",
             badge = "${config.rateLimitSeconds}s 冷却",
             badgeColor = AgnesAmber,
             testTag = "nav_ratelimit_button",
@@ -1345,7 +1345,14 @@ fun RateLimitAndGenerationSubPage(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Text(text = "生图与生视频冷却间隔 (秒):", fontSize = 11.sp, color = AppTextSecondary)
+                Text(text = "各通道独立冷却间隔 (秒):", fontSize = 11.sp, color = AppTextSecondary)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "生图 / 生视频 / 脚本规划各自独立计时，互不阻塞（仅创建视频占视频配额，轮询不计）",
+                    fontSize = 9.sp,
+                    color = AppTextSecondary,
+                    lineHeight = 13.sp
+                )
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = rateLimitSeconds,

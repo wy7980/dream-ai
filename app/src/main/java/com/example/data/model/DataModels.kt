@@ -250,14 +250,64 @@ data class GenerationTask(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
-data class RateLimitState(
+/**
+ * Independent server-side rate-limit buckets. Verified live (2026-09-23) that the Agnes backend
+ * enforces its quota PER ENDPOINT, so these lanes never block each other:
+ *  - [IMAGE]  `POST /v1/images/generations` — own quota (≥12 concurrent requests succeeded).
+ *  - [VIDEO]  `POST /v1/videos` (task creation) — own quota (a 2nd concurrent create returned 429).
+ *  - [SCRIPT] `POST /v1/chat/completions` — own quota (script planning).
+ * Previously all three shared ONE cooldown window, so a storyboard render waited behind every
+ * preview image and the planning call — roughly halving throughput for no reason.
+ */
+enum class RateLimitLane(val label: String) {
+    IMAGE("生图"),
+    VIDEO("生视频"),
+    SCRIPT("脚本规划")
+}
+
+/** Per-lane cooldown snapshot (one rate-limit bucket). */
+data class RateLimitLaneState(
+    val lane: RateLimitLane,
     val isCoolingDown: Boolean = false,
     val remainingSeconds: Int = 0,
     val totalCooldownSeconds: Int = 60,
     val lastCallTime: Long = 0L,
     val pendingQueueCount: Int = 0,
     val currentExecutingTask: String? = null
-)
+) {
+    val isIdle: Boolean
+        get() = !isCoolingDown && pendingQueueCount == 0 && currentExecutingTask == null
+
+    /** Higher = more worth surfacing. Drives which lane becomes the composite [RateLimitState] headline. */
+    val priorityScore: Int
+        get() = when {
+            isCoolingDown -> 3
+            currentExecutingTask != null -> 2
+            pendingQueueCount > 0 -> 1
+            else -> 0
+        }
+}
+
+/**
+ * Composite rate-limit snapshot across all lanes.
+ *
+ * The scalar fields mirror the single most "interesting" lane (cooling > busy > queued) so the
+ * existing single-state UI keeps working, while [lanes] carries the full per-lane detail for the
+ * multi-lane display. Use [laneState] to read one lane explicitly.
+ */
+data class RateLimitState(
+    val isCoolingDown: Boolean = false,
+    val remainingSeconds: Int = 0,
+    val totalCooldownSeconds: Int = 60,
+    val lastCallTime: Long = 0L,
+    val pendingQueueCount: Int = 0,
+    val currentExecutingTask: String? = null,
+    val lanes: List<RateLimitLaneState> = emptyList()
+) {
+    fun laneState(lane: RateLimitLane): RateLimitLaneState =
+        lanes.firstOrNull { it.lane == lane }
+            ?: RateLimitLaneState(lane = lane, totalCooldownSeconds = totalCooldownSeconds)
+}
 
 /**
  * Shared bounds for the storyboard scene count. Each scene costs one rate-limited video

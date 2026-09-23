@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.model.RateLimitLaneState
 import com.example.data.model.RateLimitState
 import com.example.ui.theme.AgnesAmber
 import com.example.ui.theme.AgnesCyan
@@ -345,6 +346,11 @@ fun RateLimitBanner(
                         }
                     }
 
+                    if (rateLimitState.lanes.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LaneStatusRow(lanes = rateLimitState.lanes)
+                    }
+
                     AnimatedVisibility(
                         visible = rateLimitState.currentExecutingTask != null,
                         enter = fadeIn(),
@@ -384,6 +390,69 @@ fun RateLimitBanner(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Per-lane status strip: one compact chip per [RateLimitLaneState], so the user can see at a glance
+ * that image / video / script planning each have their OWN cooldown window and are not blocking
+ * each other. Green = idle/ready, amber = cooling, cyan = actively calling.
+ */
+@Composable
+private fun LaneStatusRow(
+    lanes: List<RateLimitLaneState>,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        lanes.forEach { lane ->
+            val active = lane.currentExecutingTask != null
+            val chipColor = when {
+                lane.isCoolingDown -> AgnesAmber
+                active -> AgnesCyan
+                else -> AgnesEmerald
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(chipColor.copy(alpha = 0.10f))
+                    .border(1.dp, chipColor.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                    .testTag("rate_lane_${lane.lane.name.lowercase()}"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(chipColor, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Column {
+                    Text(
+                        text = lane.lane.label,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = chipColor,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = when {
+                            lane.isCoolingDown -> "冷却 ${lane.remainingSeconds}s"
+                            active -> "调用中"
+                            lane.pendingQueueCount > 0 -> "排队 ${lane.pendingQueueCount}"
+                            else -> "就绪"
+                        },
+                        fontSize = 8.sp,
+                        color = AppTextSecondary,
+                        maxLines = 1
+                    )
                 }
             }
         }
