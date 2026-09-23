@@ -49,7 +49,8 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         application,
         AppDatabase::class.java,
         "agnes_studio_db"
-    ).fallbackToDestructiveMigration(dropAllTables = true).build()
+    ).addMigrations(AppDatabase.MIGRATION_7_8)
+        .fallbackToDestructiveMigration(dropAllTables = true).build()
 
     private val rateLimitManager = RateLimitManager(cooldownIntervalSeconds = 60)
     private val agnesClient = AgnesClient(application, rateLimitManager)
@@ -442,6 +443,10 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
         videoModel: String? = null,
         aspectRatio: String = "16:9",
         durationPerScene: Int = VideoDurationLimits.AUTO,
+        /** Re-plan an existing project in place instead of spawning a new one (script-only re-plan). */
+        reuseProjectId: String? = null,
+        /** false = keep the current 定妆图 (script-only re-plan); true = render a fresh one. */
+        regenerateStyleReference: Boolean = true,
         onSuccess: (GenerationProject) -> Unit = {}
     ) {
         if (themePrompt.isBlank() && sourceImageUri == null) {
@@ -463,13 +468,19 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                     aspectRatio = aspectRatio,
                     durationPerScene = safeDurationPerScene(durationPerScene),
                     sessionId = sessionId,
+                    reuseProjectId = reuseProjectId,
+                    regenerateStyleReference = regenerateStyleReference,
                     onProgress = { msg -> _videoProgressMessage.value = msg }
                 )
                 if (result.isSuccess) {
                     val proj = result.getOrThrow()
                     selectProject(proj)
                     refreshResumableTasks()
-                    _toastMessage.value = "AI 已规划 ${proj.totalClips} 幕，可调整后点击生成"
+                    _toastMessage.value = if (reuseProjectId != null) {
+                        "已重新规划 ${proj.totalClips} 幕（定妆图保持不变）"
+                    } else {
+                        "AI 已规划 ${proj.totalClips} 幕，可调整后点击生成"
+                    }
                     onSuccess(proj)
                 } else {
                     _toastMessage.value = "分镜规划失败: ${result.exceptionOrNull()?.message}"

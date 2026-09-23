@@ -334,6 +334,12 @@ class AgnesRepository(
         durationPerScene: Int = VideoDurationLimits.AUTO,
         sessionId: String? = null,
         reuseProjectId: String? = null,
+        /**
+         * When false, an existing project's style anchor (定妆图) is preserved instead of being
+         * regenerated. Set false for a script-only re-plan so the user does not spend an extra
+         * image request and does not lose a style anchor they were happy with.
+         */
+        regenerateStyleReference: Boolean = true,
         onProgress: (String) -> Unit = {}
     ): Result<GenerationProject> {
         val effectiveModel = videoModel?.trim()?.ifBlank { null } ?: _configFlow.value.videoModelName
@@ -349,6 +355,14 @@ class AgnesRepository(
         }
         val safeDurationPerScene = if (autoDuration) VideoDurationLimits.DEFAULT else VideoDurationLimits.clamp(durationPerScene)
         val projectId = reuseProjectId ?: UUID.randomUUID().toString()
+        // Capture the existing row BEFORE any write: insertProject() is an @Insert(REPLACE) that
+        // overwrites the whole row, so a later read would already see the freshly-cleared copy.
+        // This is what makes the 定妆图 survive a script-only re-plan.
+        val existingProject = if (reuseProjectId != null) {
+            database.projectDao().getProjectDirect(projectId)
+        } else {
+            null
+        }
         // A resumed plan reuses the same project row: drop the stale half-planned clips first so
         // the re-plan does not leave orphans behind.
         if (reuseProjectId != null) {
@@ -367,6 +381,12 @@ class AgnesRepository(
             aspectRatio = aspectRatio,
             durationSeconds = safeDurationPerScene * requestedSceneCount,
             status = GenerationStatus.SCRIPTING,
+            // Persist the render model this film was planned with so render/re-run use the same one
+            // (and so the 定妆图 anchor is honoured — only the 2.5 series has `reference` mode).
+            videoModelName = effectiveModel,
+            // Carry the existing anchor through the REPLACE-insert so a script-only re-plan never
+            // wipes it; the block below then keeps or replaces it based on regenerateStyleReference.
+            styleReferenceImageUrl = if (!regenerateStyleReference) existingProject?.styleReferenceImageUrl else null,
             statusMessage = if (autoSceneCount) {
                 "Dream AI 正在根据素材自动规划分镜数量与时长 (模型: $effectiveModel)..."
             } else {
@@ -435,17 +455,29 @@ class AgnesRepository(
         // Style anchor (定妆图): render ONE key-art in the locked medium so every later scene can be
         // generated in `reference` mode against it. Best-effort — a failure here must not block the
         // plan; the pipeline then degrades to text/keyframe style locking. Costs one image request.
-        onProgress("正在生成全片风格定妆图（画风与主角基准）...")
-        val styleRefUrl = agnesClient.generateStyleReferenceImage(
-            config = _configFlow.value,
-            stylePreset = stylePreset,
-            styleBible = styleBible,
-            themePrompt = themePrompt,
-            aspectRatio = aspectRatio,
-            sourceImageUri = sourceImageUri
-        ).getOrNull()
-        if (styleRefUrl == null) {
-            Log.w("AgnesRepository", "定妆图生成失败，降级为文本/关键帧风格锁定")
+        //
+        // Preserved across a script-only re-plan (regenerateStyleReference=false): the anchor is
+        // about the FILM's look, not the individual beats, so a new storyboard must not discard it.
+        // Uses the snapshot taken before insertProject() overwrote the row.
+        val preservedStyleRef = if (!regenerateStyleReference) {
+            existingProject?.styleReferenceImageUrl
+        } else {
+            null
+        }
+        val styleRefUrl: String? = when {
+            preservedStyleRef != null -> preservedStyleRef
+            !regenerateStyleReference -> null
+            else -> {
+                onProgress("正在生成全片风格定妆图（画风与主角基准）...")
+                agnesClient.generateStyleReferenceImage(
+                    config = _configFlow.value,
+                    stylePreset = stylePreset,
+                    styleBible = styleBible,
+                    themePrompt = themePrompt,
+                    aspectRatio = aspectRatio,
+                    sourceImageUri = sourceImageUri
+                ).getOrNull().also { if (it == null) Log.w("AgnesRepository", "定妆图生成失败，降级为文本/关键帧风格锁定") }
+            }
         }
 
         // Park at AWAITING_REVIEW: phase 2 needs an explicit go-ahead before spending requests.
@@ -481,7 +513,10 @@ class AgnesRepository(
         val project = database.projectDao().getProjectDirect(projectId)
             ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
         val config = _configFlow.value
-        val effectiveModel = config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
+        // Prefer the model this film was planned with; only fall back to the global default for
+        // legacy rows (planned before the model was persisted).
+        val effectiveModel = project.videoModelName?.trim()?.ifBlank { null }
+            ?: config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
         val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
         val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
         val styleBible = project.styleBible
@@ -1044,7 +1079,9 @@ class AgnesRepository(
             ?: return Result.failure(IllegalStateException("分镜不存在或已被删除"))
 
         val config = _configFlow.value
-        val effectiveModel = config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
+        // Same model the film was planned with (legacy rows fall back to the global default).
+        val effectiveModel = project.videoModelName?.trim()?.ifBlank { null }
+            ?: config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
         val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
         val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
         val durationSeconds = if (clip.durationSeconds > 0) clip.durationSeconds else 5

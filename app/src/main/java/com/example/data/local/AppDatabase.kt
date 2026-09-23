@@ -10,6 +10,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.model.ChatMessage
 import com.example.data.model.ChatSession
 import com.example.data.model.GenerationProject
@@ -198,7 +200,7 @@ interface GenerationTaskDao {
 
 @Database(
     entities = [GenerationProject::class, SceneClip::class, ChatMessage::class, ChatSession::class, GenerationTask::class],
-    version = 7, // v7: GenerationProject.styleReferenceImageUrl (per-film style anchor image)
+    version = 8, // v8: GenerationProject.videoModelName (persist the render model per film)
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -208,4 +210,18 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun chatMessageDao(): ChatMessageDao
     abstract fun chatSessionDao(): ChatSessionDao
     abstract fun generationTaskDao(): GenerationTaskDao
+
+    companion object {
+        /**
+         * v7 -> v8: add `videoModelName` to `projects`. A real migration (not a destructive fallback)
+         * because dropping the table would erase the 定妆图 anchor and every rendered clip — exactly
+         * the data this change exists to protect. Existing rows get NULL, which reads as "use the
+         * global default", i.e. the previous behaviour.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE projects ADD COLUMN videoModelName TEXT")
+            }
+        }
+    }
 }

@@ -876,7 +876,11 @@ fun VideoPipelineScreen(
                                         stylePreset = selectedStyle,
                                         videoModel = selectedModel,
                                         aspectRatio = selectedRatio,
-                                        durationPerScene = if (autoPlan) VideoDurationLimits.AUTO else sceneDuration
+                                        durationPerScene = if (autoPlan) VideoDurationLimits.AUTO else sceneDuration,
+                                        // Script-only re-plan: reuse THIS project and keep the current
+                                        // 定妆图 (the anchor is about the film's look, not the beats).
+                                        reuseProjectId = reviewProject.id,
+                                        regenerateStyleReference = false
                                     )
                                 },
                                 modifier = Modifier

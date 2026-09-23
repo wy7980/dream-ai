@@ -53,6 +53,11 @@ data class GenerationProject(
     // image as <Picture 1>, so the rendering medium cannot drift shot-to-shot (watercolour → anime
     // → live action). Null = fall back to text/keyframe style locking only.
     val styleReferenceImageUrl: String? = null,
+    // Video model this film was planned with (e.g. "agnes-video-2.5-flash"). Persisted so the
+    // render/re-run uses the SAME model the storyboard was planned for — without this, the render
+    // fell back to the global default (agnes-video-v2.0), which has no `reference` mode and thus
+    // silently dropped the 定妆图, letting the visual style drift on re-runs.
+    val videoModelName: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val durationSeconds: Int = 0,
     val error: String? = null
