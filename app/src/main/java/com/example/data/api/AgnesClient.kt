@@ -517,6 +517,89 @@ class AgnesClient(
     }
 
     /**
+     * Generate the per-film STYLE REFERENCE key-art ("定妆图").
+     *
+     * One image that renders the locked medium (stylePreset) + the styleBible's protagonist and
+     * environment in a single frame. It is shown to the user (and regeneratable) and is later fed
+     * to every scene as `<Picture 1>` in Agnes 2.5 `reference` mode, so the rendering medium is
+     * anchored to an actual image instead of free-form text — the strongest available defence
+     * against style drift between shots.
+     *
+     * @return a publicly reachable image URL, or failure (callers degrade to text-only locking).
+     */
+    suspend fun generateStyleReferenceImage(
+        config: AgnesApiConfig,
+        stylePreset: String,
+        styleBible: String?,
+        themePrompt: String,
+        aspectRatio: String = "16:9",
+        sourceImageUri: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        rateLimitManager.executeRateLimited("Dream AI 全片风格定妆图") {
+            try {
+                val provider = resolveProvider(config, config.imageProviderId)
+                if (provider.apiKey.isBlank()) {
+                    return@executeRateLimited Result.failure(IllegalStateException("图像 Provider 未配置 API Key"))
+                }
+                val base = provider.endpointUrl.trim().removeSuffix("/")
+                val endpoint = if (base.endsWith("/v1")) "$base/images/generations" else "$base/v1/images/generations"
+                val frameModel = config.modelName.trim().ifBlank { "agnes-image-2.5-flash" }
+
+                val prompt = buildString {
+                    append("【全片画风·定妆基准图】统一画风媒介：$stylePreset。")
+                    append("这是整部影片的风格与主角基准参考图，用于锁定全片唯一画风与主角外貌。")
+                    if (!styleBible.isNullOrBlank()) append("全片设定：$styleBible。")
+                    append("主题：$themePrompt。")
+                    append("画面须清晰展示主角外貌/服装与主环境，构图干净，作为后续所有分镜的风格与主体锚点。")
+                    append("严格统一画风，不要拼接多种媒介。")
+                }
+                val inputImage = uriToDataUri(sourceImageUri)
+
+                val requestJson = JSONObject().apply {
+                    put("model", frameModel)
+                    put("prompt", prompt)
+                    put("size", "1K")
+                    put("ratio", aspectRatio)
+                    put("n", 1)
+                    put("extra_body", JSONObject().apply {
+                        put("response_format", "url")
+                        if (inputImage != null) {
+                            put("image", JSONArray().put(inputImage))
+                        }
+                    })
+                }
+
+                val headerName = provider.authHeader.trim().ifBlank { "Bearer" }
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("Authorization", "$headerName ${provider.apiKey.trim()}")
+                    .header("Content-Type", "application/json")
+                    .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@executeRateLimited Result.failure(
+                            IOException("定妆图生成失败 HTTP ${response.code}")
+                        )
+                    }
+                    val body = response.body?.string() ?: ""
+                    val json = JSONObject(body)
+                    val url = json.optJSONArray("data")?.optJSONObject(0)?.optString("url").orEmpty()
+                    if (url.isNotBlank()) {
+                        Result.success(url)
+                    } else {
+                        Result.failure(IOException("定妆图未返回图片 URL"))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("AgnesClient", "generateStyleReferenceImage failed: ${e.message}")
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Step 1: AI Video Script Planning
      *
      * Deconstructs an idea/image into a cinematic sequential storyboard. Two modes:
@@ -722,6 +805,14 @@ class AgnesClient(
         stylePreset: String,
         sourceImageUri: String? = null,
         styleBible: String? = null,
+        /**
+         * Per-film style anchor image (定妆图). When set, the 2.5 models render in `reference`
+         * mode with this image as `<Picture 1>`, pinning the medium/palette/protagonist look to
+         * an actual picture instead of free-form text — the strongest defence against style drift.
+         * `reference` mode is mutually exclusive with `first_frame`/`last_frame`, so when it is on
+         * the continuity frame rides along as `<Picture 2>` instead of a keyframe.
+         */
+        styleReferenceImageUrl: String? = null,
         prevFrameImageUri: String? = null,
         lastFrameImageUri: String? = null,
         seed: Long? = null,
@@ -769,6 +860,13 @@ class AgnesClient(
                     // (and the model supports keyframes) the clip is generated as an interpolation
                     // between first_frame and last_frame, which is what keeps motion continuous.
                     val lastFrameDataUri = if (!lastFrameImageUri.isNullOrBlank()) uriToDataUri(lastFrameImageUri) else null
+                    // Style anchor (reference mode). Only the 2.5 series supports `reference`; the
+                    // older v2.0 contract has no such mode, so it keeps its keyframe behaviour.
+                    val styleRefDataUri = if (!styleReferenceImageUrl.isNullOrBlank()) {
+                        uriToDataUri(styleReferenceImageUrl)
+                    } else {
+                        null
+                    }
 
                     val requestJson = JSONObject().apply {
                         put("model", effectiveModel)
@@ -780,6 +878,12 @@ class AgnesClient(
                         promptParts.add("【全片统一画风·强制】$stylePreset")
                         if (!styleBible.isNullOrBlank()) {
                             promptParts.add("全片风格锁定（所有镜头必须完全一致，严禁切换画风/媒介，严禁改变主角外貌）：$styleBible")
+                        }
+                        if (styleRefDataUri != null) {
+                            promptParts.add("以 <Picture 1> 为全片画风与主角基准参考：严格保持同一画风媒介、色调、渲染质感与主角外貌")
+                            if (imageDataUri != null) {
+                                promptParts.add("以 <Picture 2> 为上一镜头末帧，画面须从该构图自然延续")
+                            }
                         }
                         promptParts.add("本镜头内容：${scene.visualPrompt}")
                         promptParts.add("运镜：${scene.cameraMovement}")
@@ -802,10 +906,14 @@ class AgnesClient(
                             effectiveModel.contains("2.5-flash", ignoreCase = true) ||
                             effectiveModel.contains("25-flash", ignoreCase = true) ||
                             effectiveModel.contains("2.5_flash", ignoreCase = true) -> {
-                                // `keyframe` + `first_frame` pins the opening frame to the previous clip's
-                                // last frame (or the user's image for scene 1), so consecutive shots truly
-                                // continue instead of merely sharing a look. `text` when there is no image.
-                                if (imageDataUri != null) {
+                                if (styleRefDataUri != null) {
+                                    // reference mode: <Picture 1> = style anchor; the previous shot's
+                                    // last frame (when available) becomes <Picture 2> for continuity.
+                                    val refs = JSONArray().put(styleRefDataUri)
+                                    if (imageDataUri != null) refs.put(imageDataUri)
+                                    put("mode", "reference")
+                                    put("images", refs)
+                                } else if (imageDataUri != null) {
                                     put("mode", "keyframe")
                                     put("first_frame", imageDataUri)
                                     // Dual-frame interpolation when we have a predicted end frame.
@@ -821,7 +929,12 @@ class AgnesClient(
                             }
                             // Agnes Video 2.5 Standard: same contract as Flash (`mode` required, `seconds` duration)
                             effectiveModel.contains("2.5", ignoreCase = true) || effectiveModel.contains("25", ignoreCase = true) -> {
-                                if (imageDataUri != null) {
+                                if (styleRefDataUri != null) {
+                                    val refs = JSONArray().put(styleRefDataUri)
+                                    if (imageDataUri != null) refs.put(imageDataUri)
+                                    put("mode", "reference")
+                                    put("images", refs)
+                                } else if (imageDataUri != null) {
                                     put("mode", "keyframe")
                                     put("first_frame", imageDataUri)
                                     if (lastFrameDataUri != null) put("last_frame", lastFrameDataUri)

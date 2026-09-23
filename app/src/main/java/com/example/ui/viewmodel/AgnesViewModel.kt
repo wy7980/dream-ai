@@ -131,6 +131,10 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
     private val _resumableTasks = MutableStateFlow<List<GenerationTask>>(emptyList())
     val resumableTasks: StateFlow<List<GenerationTask>> = _resumableTasks.asStateFlow()
 
+    /** True while a review-phase style anchor (定妆图) regeneration is in flight. */
+    private val _isRegeneratingStyleRef = MutableStateFlow(false)
+    val isRegeneratingStyleRef: StateFlow<Boolean> = _isRegeneratingStyleRef.asStateFlow()
+
     fun cancelChatTask() {
         if (chatJob?.isActive == true) {
             chatJob?.cancel()
@@ -653,6 +657,26 @@ class AgnesViewModel(application: Application) : AndroidViewModel(application) {
                         _selectedProject.value = fresh
                     }
                 }
+            }
+        }
+    }
+
+    /** Review-phase action: regenerate the per-film style anchor (定妆图) shown in the panel. */
+    fun regenerateStyleReference(projectId: String) {
+        if (projectId.isBlank()) return
+        if (_isRegeneratingStyleRef.value) return
+        viewModelScope.launch {
+            _isRegeneratingStyleRef.value = true
+            try {
+                val result = repository.regenerateStyleReference(projectId)
+                if (result.isSuccess) {
+                    _selectedProject.value = result.getOrThrow()
+                    _toastMessage.value = "已更新全片风格定妆图"
+                } else {
+                    _toastMessage.value = "定妆图重新生成失败: ${result.exceptionOrNull()?.message}"
+                }
+            } finally {
+                _isRegeneratingStyleRef.value = false
             }
         }
     }

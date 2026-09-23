@@ -47,6 +47,12 @@ data class GenerationProject(
     // Global "style bible" produced by the script planner: locks protagonist / wardrobe /
     // environment / lighting / color grading so every scene of one project stays consistent.
     val styleBible: String? = null,
+    // IP-Adapter-style style anchor: one key-art image (protagonist + environment rendered in the
+    // locked visualStyle). Generated once per project, shown to the user in the review panel and
+    // regeneratable. When present, every scene is rendered in Agnes 2.5 `reference` mode with this
+    // image as <Picture 1>, so the rendering medium cannot drift shot-to-shot (watercolour → anime
+    // → live action). Null = fall back to text/keyframe style locking only.
+    val styleReferenceImageUrl: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val durationSeconds: Int = 0,
     val error: String? = null
