@@ -432,12 +432,29 @@ class AgnesRepository(
             .map { it.copy(projectId = projectId, durationSeconds = targetDurationPerScene, isDraft = true) }
         database.sceneClipDao().insertClips(scenes)
 
+        // Style anchor (定妆图): render ONE key-art in the locked medium so every later scene can be
+        // generated in `reference` mode against it. Best-effort — a failure here must not block the
+        // plan; the pipeline then degrades to text/keyframe style locking. Costs one image request.
+        onProgress("正在生成全片风格定妆图（画风与主角基准）...")
+        val styleRefUrl = agnesClient.generateStyleReferenceImage(
+            config = _configFlow.value,
+            stylePreset = stylePreset,
+            styleBible = styleBible,
+            themePrompt = themePrompt,
+            aspectRatio = aspectRatio,
+            sourceImageUri = sourceImageUri
+        ).getOrNull()
+        if (styleRefUrl == null) {
+            Log.w("AgnesRepository", "定妆图生成失败，降级为文本/关键帧风格锁定")
+        }
+
         // Park at AWAITING_REVIEW: phase 2 needs an explicit go-ahead before spending requests.
         val plannedProject = project.copy(
             totalClips = scenes.size,
             completedClips = 0,
             durationSeconds = targetDurationPerScene * scenes.size,
             styleBible = styleBible,
+            styleReferenceImageUrl = styleRefUrl,
             status = GenerationStatus.AWAITING_REVIEW,
             statusMessage = "AI 已规划 ${scenes.size} 幕（${targetDurationPerScene}秒/幕，成片约 ${targetDurationPerScene * scenes.size} 秒），确认或调整后再生成"
         )
@@ -468,6 +485,7 @@ class AgnesRepository(
         val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
         val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
         val styleBible = project.styleBible
+        val styleReferenceImageUrl = project.styleReferenceImageUrl
 
         val allScenes = database.sceneClipDao().getClipsForProjectDirect(projectId).sortedBy { it.sceneNumber }
         if (allScenes.isEmpty()) {
@@ -608,6 +626,7 @@ class AgnesRepository(
                     stylePreset = stylePreset,
                     sourceImageUri = project.sourceImageUri,
                     styleBible = styleBible,
+                    styleReferenceImageUrl = styleReferenceImageUrl,
                     prevFrameImageUri = if (chainedFromPrev) runningPrevFrame else null,
                     lastFrameImageUri = predictedEndFrameUri,
                     seed = projectSeed,
@@ -903,6 +922,34 @@ class AgnesRepository(
     }
 
     /**
+     * Regenerate a project's style anchor (定妆图) on user request. Keeps the plan and any rendered
+     * scenes untouched — only the anchor image changes, so the user can iterate on the look before
+     * spending the (rate-limited) per-scene video requests. Returns the refreshed project.
+     */
+    suspend fun regenerateStyleReference(projectId: String): Result<GenerationProject> {
+        val project = database.projectDao().getProjectDirect(projectId)
+            ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
+        val url = agnesClient.generateStyleReferenceImage(
+            config = _configFlow.value,
+            stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" },
+            styleBible = project.styleBible,
+            themePrompt = project.prompt,
+            aspectRatio = project.aspectRatio.ifBlank { "16:9" },
+            sourceImageUri = project.sourceImageUri
+        )
+        return if (url.isSuccess) {
+            val updated = project.copy(
+                styleReferenceImageUrl = url.getOrThrow(),
+                statusMessage = "已更新全片风格定妆图"
+            )
+            database.projectDao().updateProject(updated)
+            Result.success(updated)
+        } else {
+            Result.failure(url.exceptionOrNull() ?: Exception("定妆图重新生成失败"))
+        }
+    }
+
+    /**
      * Apply a uniform per-scene duration to every scene of a project (review-phase adjustment).
      * Also refreshes the project's total duration so the header summary stays truthful.
      */
@@ -1053,6 +1100,7 @@ class AgnesRepository(
             stylePreset = stylePreset,
             sourceImageUri = project.sourceImageUri,
             styleBible = project.styleBible,
+            styleReferenceImageUrl = project.styleReferenceImageUrl,
             prevFrameImageUri = prevFrameUri,
             lastFrameImageUri = predictedEndFrameUri,
             seed = (projectId.hashCode().toLong() and 0x7FFFFFFFL),

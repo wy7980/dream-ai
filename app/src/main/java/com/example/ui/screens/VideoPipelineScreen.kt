@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
@@ -132,6 +134,7 @@ fun VideoPipelineScreen(
     val rerunningClipId by viewModel.rerunningClipId.collectAsState()
     val projects by viewModel.projects.collectAsState()
     val resumableTasks by viewModel.resumableTasks.collectAsState()
+    val isRegeneratingStyleRef by viewModel.isRegeneratingStyleRef.collectAsState()
 
     var themePrompt by remember {
         mutableStateOf(
@@ -765,6 +768,101 @@ fun VideoPipelineScreen(
                         val pendingCount = selectedClips.count {
                             it.status != GenerationStatus.COMPLETED || it.videoUrl.isNullOrBlank()
                         }
+
+                        // Style anchor (定妆图) panel: shows the per-film style/protagonist key-art
+                        // that every scene is rendered against in `reference` mode, and lets the user
+                        // regenerate it before spending the rate-limited per-scene video requests.
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, AgnesViolet.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                .testTag("style_reference_panel"),
+                            color = AgnesViolet.copy(alpha = 0.10f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Palette,
+                                        contentDescription = null,
+                                        tint = AgnesVioletLight,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "全片画风基准图（定妆图）",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppTextPrimary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isRegeneratingStyleRef) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = AgnesVioletLight
+                                        )
+                                    } else {
+                                        IconButton(
+                                            onClick = { viewModel.regenerateStyleReference(reviewProject.id) },
+                                            modifier = Modifier
+                                                .size(30.dp)
+                                                .testTag("regenerate_style_reference")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "重新生成定妆图",
+                                                tint = AgnesCyan,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                val styleRefUrl = reviewProject.styleReferenceImageUrl
+                                if (!styleRefUrl.isNullOrBlank()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(150.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.Black)
+                                    ) {
+                                        AsyncImage(
+                                            model = styleRefUrl,
+                                            contentDescription = "全片画风基准图",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(64.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(AppSubtleBg),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "暂无定妆图（生成失败或未启用）· 点右上角重新生成",
+                                            fontSize = 10.sp,
+                                            color = AppTextSecondary
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "每幕以该图为 <Picture 1> 风格锚点（Agnes 2.5 reference 模式），锁定画风媒介与主角外貌，杜绝逐幕画风漂移。",
+                                    fontSize = 9.sp,
+                                    color = AppTextSecondary,
+                                    lineHeight = 13.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)

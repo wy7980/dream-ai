@@ -198,7 +198,7 @@ interface GenerationTaskDao {
 
 @Database(
     entities = [GenerationProject::class, SceneClip::class, ChatMessage::class, ChatSession::class, GenerationTask::class],
-    version = 6, // v6: GenerationProject.sessionId + GenerationTask (durable video task state machine)
+    version = 7, // v7: GenerationProject.styleReferenceImageUrl (per-film style anchor image)
     exportSchema = false
 )
 @TypeConverters(Converters::class)
