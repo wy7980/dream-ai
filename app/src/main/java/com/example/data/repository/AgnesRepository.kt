@@ -355,6 +355,14 @@ class AgnesRepository(
         }
         val safeDurationPerScene = if (autoDuration) VideoDurationLimits.DEFAULT else VideoDurationLimits.clamp(durationPerScene)
         val projectId = reuseProjectId ?: UUID.randomUUID().toString()
+        // Capture the existing row BEFORE any write: insertProject() is an @Insert(REPLACE) that
+        // overwrites the whole row, so a later read would already see the freshly-cleared copy.
+        // This is what makes the 定妆图 survive a script-only re-plan.
+        val existingProject = if (reuseProjectId != null) {
+            database.projectDao().getProjectDirect(projectId)
+        } else {
+            null
+        }
         // A resumed plan reuses the same project row: drop the stale half-planned clips first so
         // the re-plan does not leave orphans behind.
         if (reuseProjectId != null) {
@@ -373,6 +381,12 @@ class AgnesRepository(
             aspectRatio = aspectRatio,
             durationSeconds = safeDurationPerScene * requestedSceneCount,
             status = GenerationStatus.SCRIPTING,
+            // Persist the render model this film was planned with so render/re-run use the same one
+            // (and so the 定妆图 anchor is honoured — only the 2.5 series has `reference` mode).
+            videoModelName = effectiveModel,
+            // Carry the existing anchor through the REPLACE-insert so a script-only re-plan never
+            // wipes it; the block below then keeps or replaces it based on regenerateStyleReference.
+            styleReferenceImageUrl = if (!regenerateStyleReference) existingProject?.styleReferenceImageUrl else null,
             statusMessage = if (autoSceneCount) {
                 "Dream AI 正在根据素材自动规划分镜数量与时长 (模型: $effectiveModel)..."
             } else {
@@ -444,8 +458,9 @@ class AgnesRepository(
         //
         // Preserved across a script-only re-plan (regenerateStyleReference=false): the anchor is
         // about the FILM's look, not the individual beats, so a new storyboard must not discard it.
+        // Uses the snapshot taken before insertProject() overwrote the row.
         val preservedStyleRef = if (!regenerateStyleReference) {
-            database.projectDao().getProjectDirect(projectId)?.styleReferenceImageUrl
+            existingProject?.styleReferenceImageUrl
         } else {
             null
         }
@@ -498,7 +513,10 @@ class AgnesRepository(
         val project = database.projectDao().getProjectDirect(projectId)
             ?: return Result.failure(IllegalStateException("项目不存在或已被删除"))
         val config = _configFlow.value
-        val effectiveModel = config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
+        // Prefer the model this film was planned with; only fall back to the global default for
+        // legacy rows (planned before the model was persisted).
+        val effectiveModel = project.videoModelName?.trim()?.ifBlank { null }
+            ?: config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
         val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
         val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
         val styleBible = project.styleBible
@@ -1061,7 +1079,9 @@ class AgnesRepository(
             ?: return Result.failure(IllegalStateException("分镜不存在或已被删除"))
 
         val config = _configFlow.value
-        val effectiveModel = config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
+        // Same model the film was planned with (legacy rows fall back to the global default).
+        val effectiveModel = project.videoModelName?.trim()?.ifBlank { null }
+            ?: config.videoModelName.trim().ifBlank { "agnes-video-2.5-flash" }
         val aspectRatio = project.aspectRatio.ifBlank { "16:9" }
         val stylePreset = project.stylePreset.ifBlank { "Cinematic 3D" }
         val durationSeconds = if (clip.durationSeconds > 0) clip.durationSeconds else 5
