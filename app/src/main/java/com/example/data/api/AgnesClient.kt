@@ -23,6 +23,7 @@ import com.arthenica.ffmpegkit.ReturnCode
 import com.example.data.model.AIProvider
 import com.example.data.model.AgnesApiConfig
 import com.example.data.model.ChatMessage
+import com.example.data.model.RateLimitLane
 import com.example.data.model.SceneClip
 import com.example.data.model.TavilySearchResponse
 import com.example.data.model.TavilySearchResultItem
@@ -382,7 +383,7 @@ class AgnesClient(
         aspectRatio: String,
         sourceImageUri: String?
     ): Result<String> = withContext(Dispatchers.IO) {
-        rateLimitManager.executeRateLimited("Agnes 图像生成与重绘") {
+        rateLimitManager.executeRateLimited(RateLimitLane.IMAGE, "Agnes 图像生成与重绘") {
             try {
                 val provider = resolveProvider(config, config.imageProviderId)
                 if (provider.apiKey.isNotBlank()) {
@@ -458,7 +459,7 @@ class AgnesClient(
         aspectRatio: String = "16:9",
         modelOverride: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        rateLimitManager.executeRateLimited("Agnes 分镜尾帧预测") {
+        rateLimitManager.executeRateLimited(RateLimitLane.IMAGE, "Agnes 分镜尾帧预测") {
             try {
                 val provider = resolveProvider(config, config.imageProviderId)
                 if (provider.apiKey.isBlank()) {
@@ -535,7 +536,7 @@ class AgnesClient(
         aspectRatio: String = "16:9",
         sourceImageUri: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        rateLimitManager.executeRateLimited("Dream AI 全片风格定妆图") {
+        rateLimitManager.executeRateLimited(RateLimitLane.IMAGE, "Dream AI 全片风格定妆图") {
             try {
                 val provider = resolveProvider(config, config.imageProviderId)
                 if (provider.apiKey.isBlank()) {
@@ -618,7 +619,7 @@ class AgnesClient(
         val autoSceneCount = sceneCount == VideoSceneLimits.AUTO
         val autoDuration = durationPerScene == VideoDurationLimits.AUTO
         val effectiveSceneCount = VideoSceneLimits.clamp(sceneCount)
-        rateLimitManager.executeRateLimited("Agnes 分镜脚本智能规划") {
+        rateLimitManager.executeRateLimited(RateLimitLane.SCRIPT, "Agnes 分镜脚本智能规划") {
             try {
                 val provider = resolveProvider(config, config.chatProviderId)
                 if (provider.apiKey.isNotBlank()) {
@@ -830,7 +831,7 @@ class AgnesClient(
         // unit. Polling the result is read-only and can run for minutes, so it is deliberately kept
         // OUTSIDE the lock — otherwise the limiter would report "调用中" for the entire render and
         // no other task (and no resume logic) could ever be admitted.
-        val createOutcome = rateLimitManager.executeRateLimitedWithRetry("Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
+        val createOutcome = rateLimitManager.executeRateLimitedWithRetry(RateLimitLane.VIDEO, "Dream AI 分段视频生成 [分镜 ${scene.sceneNumber}: ${scene.sceneTitle}, 模型: $effectiveModel]") {
             try {
                 val provider = resolveProvider(config, config.videoProviderId)
                 if (provider.apiKey.isNotBlank()) {
